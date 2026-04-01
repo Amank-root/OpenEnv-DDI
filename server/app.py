@@ -5,9 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-FastAPI application for the Ddi Environment.
+FastAPI application for the DDI triage environment.
 
-This module creates an HTTP server that exposes the DdiEnvironment
+This module creates an HTTP server that exposes DdiEnvironment
 over HTTP and WebSocket endpoints, compatible with EnvClient.
 
 Endpoints:
@@ -38,12 +38,12 @@ except Exception as e:  # pragma: no cover
 try:
     from ..models import DdiAction, DdiObservation
     from .ddi_environment import DdiEnvironment
-except ModuleNotFoundError:
+except (ModuleNotFoundError, ImportError):
     from models import DdiAction, DdiObservation
     from server.ddi_environment import DdiEnvironment
 
 
-# Create the app with web interface and README integration
+# Create the app with web interface and README integration.
 app = create_app(
     DdiEnvironment,
     DdiAction,
@@ -53,7 +53,7 @@ app = create_app(
 )
 
 
-def main(host: str = "0.0.0.0", port: int = 8000):
+def main(host: str = "0.0.0.0", port: int = 8000) -> None:
     """
     Entry point for direct execution via uv run or python -m.
 
@@ -75,10 +75,12 @@ def main(host: str = "0.0.0.0", port: int = 8000):
     uvicorn.run(app, host=host, port=port)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
+    # if args.port != 8000:
     main(port=args.port)
+    # main()

@@ -6,11 +6,17 @@
 
 """Ddi Environment."""
 
-from .client import DdiEnv
-from .models import DdiAction, DdiObservation
+try:
+    from .client import DdiEnv
+    from .models import DdiAction, DdiCandidate, DdiObservation, SubstitutionOption
+except ImportError:
+    from client import DdiEnv
+    from models import DdiAction, DdiCandidate, DdiObservation, SubstitutionOption
 
 __all__ = [
     "DdiAction",
+    "DdiCandidate",
     "DdiObservation",
+    "SubstitutionOption",
     "DdiEnv",
 ]

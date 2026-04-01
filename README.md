@@ -1,6 +1,6 @@
 ---
-title: Ddi Environment Server
-emoji: 🎺
+title: DDI Polypharmacy Triage Environment
+emoji: 🩺
 colorFrom: yellow
 colorTo: red
 sdk: docker
@@ -9,247 +9,188 @@ app_port: 8000
 base_path: /web
 tags:
   - openenv
+  - healthcare
+  - safety
 ---
 
-# Ddi Environment
+# DDI Polypharmacy Triage Environment
 
-A simple test environment that echoes back messages. Perfect for testing the env APIs as well as demonstrating environment usage patterns.
+This OpenEnv environment simulates a real clinical safety workflow: triaging drug-drug interactions (DDIs) for older adults with polypharmacy.
 
-## Quick Start
+Agents review medication lists, labs, and diagnosis context, then decide whether to:
 
-The simplest way to use the Ddi environment is through the `DdiEnv` class:
+- `flag_interaction`
+- `monitor`
+- `suggest_alternative`
+- `ignore`
+- `finish`
 
-```python
-from ddi import DdiAction, DdiEnv
+The environment is deterministic and built for reproducible benchmarking.
 
-try:
-    # Create environment from Docker image
-    ddienv = DdiEnv.from_docker_image("ddi-env:latest")
+## Why This Task
 
-    # Reset
-    result = ddienv.reset()
-    print(f"Reset: {result.observation.echoed_message}")
+Polypharmacy in elderly populations is associated with preventable adverse events and avoidable hospitalizations. This benchmark focuses on medication safety triage that clinicians and pharmacists perform in real care settings.
 
-    # Send multiple messages
-    messages = ["Hello, World!", "Testing echo", "Final message"]
+## Task Suite
 
-    for msg in messages:
-        result = ddienv.step(DdiAction(message=msg))
-        print(f"Sent: '{msg}'")
-        print(f"  → Echoed: '{result.observation.echoed_message}'")
-        print(f"  → Length: {result.observation.message_length}")
-        print(f"  → Reward: {result.reward}")
+The environment cycles task levels on each `reset()` in order: `easy -> medium -> hard`.
 
-finally:
-    # Always clean up
-    ddienv.close()
-```
+1. Easy: severe DDI detection in a 5-drug list.
+2. Medium: risk-aware triage using severity plus patient factors (age, renal function).
+3. Hard: triage plus constrained alternative regimen suggestions to reduce risk while preserving treatment intent.
 
-That's it! The `DdiEnv.from_docker_image()` method handles:
-- Starting the Docker container
-- Waiting for the server to be ready
-- Connecting to the environment
-- Container cleanup when you call `close()`
+Each episode corresponds to one patient case.
 
-## Building the Docker Image
+## Observation Space
 
-Before using the environment, you need to build the Docker image:
+`DdiObservation` includes:
 
-```bash
-# From project root
-docker build -t ddi-env:latest -f server/Dockerfile .
-```
+- `task_level`, `task_title`, `objective`
+- `patient_id`, `age`, `medications`, `diagnoses`, `labs`
+- `ddi_candidates`: list of structured interaction candidates
+- `substitution_options`: fixed alternatives catalog (hard task)
+- `decision_log`, `remaining_critical_ddis`, `current_risk_score`
+- `step_budget`, `steps_used`, `final_score`
 
-## Deploying to Hugging Face Spaces
+## Action Space
 
-You can easily deploy your OpenEnv environment to Hugging Face Spaces using the `openenv push` command:
+`DdiAction` fields:
 
-```bash
-# From the environment directory (where openenv.yaml is located)
-openenv push
+- `action_type`: one of `flag_interaction | monitor | suggest_alternative | ignore | finish`
+- `interaction_id`: required for triage actions (`flag_interaction`, `monitor`, `ignore`)
+- `suggested_regimen_id`: required for `suggest_alternative`
+- `rationale`: optional short text
 
-# Or specify options
-openenv push --namespace my-org --private
-```
+## Reward Function
 
-The `openenv push` command will:
-1. Validate that the directory is an OpenEnv environment (checks for `openenv.yaml`)
-2. Prepare a custom build for Hugging Face Docker space (enables web interface)
-3. Upload to Hugging Face (ensuring you're logged in)
+Shaped reward is provided over the full trajectory:
 
-### Prerequisites
+- Positive reward for correct triage decisions.
+- `+1` for correctly catching critical DDIs.
+- Penalties for false positives and missed critical interactions.
+- Penalties for invalid or duplicate actions.
+- Hard-task reward for correct alternative regimen suggestions.
+- Terminal adjustment based on grader score.
 
-- Authenticate with Hugging Face: The command will prompt for login if not already authenticated
+This provides dense feedback, not just sparse terminal success/failure.
 
-### Options
+## Graders
 
-- `--directory`, `-d`: Directory containing the OpenEnv environment (defaults to current directory)
-- `--repo-id`, `-r`: Repository ID in format 'username/repo-name' (defaults to 'username/env-name' from openenv.yaml)
-- `--base-image`, `-b`: Base Docker image to use (overrides Dockerfile FROM)
-- `--private`: Deploy the space as private (default: public)
+Programmatic deterministic graders are implemented for all three tasks and always return scores in `0.0..1.0`:
 
-### Examples
+- `grade_easy`
+- `grade_medium`
+- `grade_hard`
 
-```bash
-# Push to your personal namespace (defaults to username/env-name from openenv.yaml)
-openenv push
-
-# Push to a specific repository
-openenv push --repo-id my-org/my-env
-
-# Push with a custom base image
-openenv push --base-image ghcr.io/meta-pytorch/openenv-base:latest
-
-# Push as a private space
-openenv push --private
-
-# Combine options
-openenv push --repo-id my-org/my-env --base-image custom-base:latest --private
-```
-
-After deployment, your space will be available at:
-`https://huggingface.co/spaces/<repo-id>`
-
-The deployed space includes:
-- **Web Interface** at `/web` - Interactive UI for exploring the environment
-- **API Documentation** at `/docs` - Full OpenAPI/Swagger interface
-- **Health Check** at `/health` - Container health monitoring
-- **WebSocket** at `/ws` - Persistent session endpoint for low-latency interactions
-
-## Environment Details
-
-### Action
-**DdiAction**: Contains a single field
-- `message` (str) - The message to echo back
-
-### Observation
-**DdiObservation**: Contains the echo response and metadata
-- `echoed_message` (str) - The message echoed back
-- `message_length` (int) - Length of the message
-- `reward` (float) - Reward based on message length (length × 0.1)
-- `done` (bool) - Always False for echo environment
-- `metadata` (dict) - Additional info like step count
-
-### Reward
-The reward is calculated as: `message_length × 0.1`
-- "Hi" → reward: 0.2
-- "Hello, World!" → reward: 1.3
-- Empty message → reward: 0.0
-
-## Advanced Usage
-
-### Connecting to an Existing Server
-
-If you already have a Ddi environment server running, you can connect directly:
-
-```python
-from ddi import DdiEnv
-
-# Connect to existing server
-ddienv = DdiEnv(base_url="<ENV_HTTP_URL_HERE>")
-
-# Use as normal
-result = ddienv.reset()
-result = ddienv.step(DdiAction(message="Hello!"))
-```
-
-Note: When connecting to an existing server, `ddienv.close()` will NOT stop the server.
-
-### Using the Context Manager
-
-The client supports context manager usage for automatic connection management:
-
-```python
-from ddi import DdiAction, DdiEnv
-
-# Connect with context manager (auto-connects and closes)
-with DdiEnv(base_url="http://localhost:8000") as env:
-    result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-        result = env.step(DdiAction(message=msg))
-        print(f"Echoed: {result.observation.echoed_message}")
-```
-
-The client uses WebSocket connections for:
-- **Lower latency**: No HTTP connection overhead per request
-- **Persistent session**: Server maintains your environment state
-- **Efficient for episodes**: Better for many sequential steps
-
-### Concurrent WebSocket Sessions
-
-The server supports multiple concurrent WebSocket connections. To enable this,
-modify `server/app.py` to use factory mode:
-
-```python
-# In server/app.py - use factory mode for concurrent sessions
-app = create_app(
-    DdiEnvironment,  # Pass class, not instance
-    DdiAction,
-    DdiObservation,
-    max_concurrent_envs=4,  # Allow 4 concurrent sessions
-)
-```
-
-Then multiple clients can connect simultaneously:
-
-```python
-from ddi import DdiAction, DdiEnv
-from concurrent.futures import ThreadPoolExecutor
-
-def run_episode(client_id: int):
-    with DdiEnv(base_url="http://localhost:8000") as env:
-        result = env.reset()
-        for i in range(10):
-            result = env.step(DdiAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
-
-# Run 4 episodes concurrently
-with ThreadPoolExecutor(max_workers=4) as executor:
-    results = list(executor.map(run_episode, range(4)))
-```
-
-## Development & Testing
-
-### Direct Environment Testing
-
-Test the environment logic directly without starting the HTTP server:
-
-```bash
-# From the server directory
-python3 server/ddi_environment.py
-```
-
-This verifies that:
-- Environment resets correctly
-- Step executes actions properly
-- State tracking works
-- Rewards are calculated correctly
-
-### Running Locally
-
-Run the server locally for development:
-
-```bash
-uvicorn server.app:app --reload
-```
+Hard task combines interaction triage score and regimen suggestion score.
 
 ## Project Structure
 
 ```
-ddi/
-├── .dockerignore         # Docker build exclusions
-├── __init__.py            # Module exports
-├── README.md              # This file
-├── openenv.yaml           # OpenEnv manifest
-├── pyproject.toml         # Project metadata and dependencies
-├── uv.lock                # Locked dependencies (generated)
-├── client.py              # DdiEnv client
-├── models.py              # Action and Observation models
+.
+├── __init__.py
+├── client.py
+├── ddi_data.py
+├── graders.py
+├── inference.py
+├── models.py
+├── openenv.yaml
+├── pyproject.toml
+├── task_registry.py
+├── tests/
+│   ├── test_environment.py
+│   └── test_graders.py
 └── server/
-    ├── __init__.py        # Server module exports
-    ├── ddi_environment.py  # Core environment logic
-    ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
-    └── Dockerfile         # Container image definition
+    ├── app.py
+    ├── ddi_environment.py
+    └── Dockerfile
 ```
+
+## Local Setup
+
+Install dependencies:
+
+```bash
+uv sync
+```
+
+Run server:
+
+```bash
+uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+```
+
+Validate OpenEnv spec:
+
+```bash
+openenv validate
+```
+
+Run tests:
+
+```bash
+pytest -q
+```
+
+## Baseline Inference
+
+The required baseline script is `inference.py` at repository root and uses the OpenAI client.
+
+Set environment variables:
+
+```bash
+export API_BASE_URL=https://router.huggingface.co/v1
+export MODEL_NAME=<your-model>
+export HF_TOKEN=<your-token>
+```
+
+Run baseline:
+
+```bash
+python inference.py
+```
+
+Optional environment connection variables:
+
+- `ENV_BASE_URL`: connect to existing server URL.
+- `ENV_IMAGE`: Docker image name when running with `from_docker_image`.
+
+## Docker
+
+Build image:
+
+```bash
+docker build -t ddi-env:latest -f server/Dockerfile .
+```
+
+Run image:
+
+```bash
+docker run -p 8000:8000 ddi-env:latest
+```
+
+## Hugging Face Space Deployment
+
+From repository root:
+
+```bash
+openenv push
+```
+
+The deployed API exposes:
+
+- `POST /reset`
+- `POST /step`
+- `GET /state`
+- `GET /schema`
+- `GET /web`
+
+## Submission Validation
+
+Use the provided validator script:
+
+```bash
+./validate-submission.sh <your_space_url>
+```
+
+This checks Space availability, Docker build success, and `openenv validate` compliance.

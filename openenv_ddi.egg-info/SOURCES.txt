@@ -1,8 +1,21 @@
 README.md
+__init__.py
+client.py
+ddi_data.py
+graders.py
+inference.py
+inference.sample.py
+models.py
 pyproject.toml
+task_registry.py
 ./__init__.py
 ./client.py
+./ddi_data.py
+./graders.py
+./inference.py
+./inference.sample.py
 ./models.py
+./task_registry.py
 openenv_ddi.egg-info/PKG-INFO
 openenv_ddi.egg-info/SOURCES.txt
 openenv_ddi.egg-info/dependency_links.txt
@@ -12,3 +25,5 @@ openenv_ddi.egg-info/top_level.txt
 server/__init__.py
 server/app.py
 server/ddi_environment.py
+tests/test_environment.py
+tests/test_graders.py

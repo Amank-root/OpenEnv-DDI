@@ -12,7 +12,10 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import DdiAction, DdiObservation
+try:
+    from .models import DdiAction, DdiObservation
+except ImportError:
+    from models import DdiAction, DdiObservation
 
 
 class DdiEnv(
@@ -29,17 +32,18 @@ class DdiEnv(
         >>> # Connect to a running server
         >>> with DdiEnv(base_url="http://localhost:8000") as client:
         ...     result = client.reset()
-        ...     print(result.observation.echoed_message)
+        ...     print(result.observation.task_level)
         ...
-        ...     result = client.step(DdiAction(message="Hello!"))
-        ...     print(result.observation.echoed_message)
+        ...     action = DdiAction(action_type="finish", rationale="done")
+        ...     result = client.step(action)
+        ...     print(result.observation.final_score)
 
     Example with Docker:
         >>> # Automatically start container and connect
         >>> client = DdiEnv.from_docker_image("ddi-env:latest")
         >>> try:
         ...     result = client.reset()
-        ...     result = client.step(DdiAction(message="Test"))
+        ...     result = client.step(DdiAction(action_type="finish"))
         ... finally:
         ...     client.close()
     """
@@ -55,7 +59,10 @@ class DdiEnv(
             Dictionary representation suitable for JSON encoding
         """
         return {
-            "message": action.message,
+            "action_type": action.action_type,
+            "interaction_id": action.interaction_id,
+            "suggested_regimen_id": action.suggested_regimen_id,
+            "rationale": action.rationale,
         }
 
     def _parse_result(self, payload: Dict) -> StepResult[DdiObservation]:
@@ -70,8 +77,22 @@ class DdiEnv(
         """
         obs_data = payload.get("observation", {})
         observation = DdiObservation(
-            echoed_message=obs_data.get("echoed_message", ""),
-            message_length=obs_data.get("message_length", 0),
+            task_level=obs_data.get("task_level", "easy"),
+            task_title=obs_data.get("task_title", ""),
+            objective=obs_data.get("objective", ""),
+            patient_id=obs_data.get("patient_id", ""),
+            age=obs_data.get("age", 0),
+            medications=obs_data.get("medications", []),
+            diagnoses=obs_data.get("diagnoses", []),
+            labs=obs_data.get("labs", {}),
+            ddi_candidates=obs_data.get("ddi_candidates", []),
+            substitution_options=obs_data.get("substitution_options", []),
+            decision_log=obs_data.get("decision_log", []),
+            remaining_critical_ddis=obs_data.get("remaining_critical_ddis", 0),
+            current_risk_score=obs_data.get("current_risk_score", 0.0),
+            step_budget=obs_data.get("step_budget", 0),
+            steps_used=obs_data.get("steps_used", 0),
+            final_score=obs_data.get("final_score"),
             done=payload.get("done", False),
             reward=payload.get("reward"),
             metadata=obs_data.get("metadata", {}),

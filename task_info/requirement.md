@@ -27,7 +27,8 @@
 
 ## Baseline Inference Script
 - Uses the **OpenAI API client** to run a model against the environment.  
-- Reads API credentials from environment variables (`OPENAI_API_KEY`).  
+- Reads API credentials from environment variables with this precedence:
+  `HF_TOKEN` -> `API_KEY` -> `OPENAI_API_KEY`.  
 - Produces a reproducible **baseline score** on all 3 tasks.
 
 # Detailed Requirements

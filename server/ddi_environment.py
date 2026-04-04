@@ -38,6 +38,21 @@ except ImportError:
     from task_registry import TASK_CONFIGS, TASK_ORDER
 
 
+# Reward calibration constants.
+REWARD_CORRECT_FLAG = 1.0
+REWARD_CORRECT_NON_FLAG = 0.65
+PENALTY_MISSED_CRITICAL = 1.2
+PENALTY_FALSE_POSITIVE_FLAG = 0.85
+PENALTY_SUBOPTIMAL = 0.3
+
+REWARD_REQUIRED_REGIMEN = 0.9
+REWARD_OPTIONAL_HIGH_IMPACT = 0.12
+PENALTY_OPTIONAL_LOW_IMPACT = 0.05
+HIGH_IMPACT_REGIMEN_DELTA = 0.5
+
+TERMINAL_SCORE_WEIGHT = 0.75
+
+
 class DdiEnvironment(Environment):
     """Environment for DDI triage in elderly patients with polypharmacy."""
 
@@ -227,22 +242,26 @@ class DdiEnvironment(Environment):
                     )
                     self._decisions[interaction_id] = action_type
                     if action_type == expected:
-                        reward += 1.0 if expected == "flag_interaction" else 0.45
+                        reward += (
+                            REWARD_CORRECT_FLAG
+                            if expected == "flag_interaction"
+                            else REWARD_CORRECT_NON_FLAG
+                        )
                         self._decision_log.append(
                             f"Correct triage for {interaction_id}: {action_type}"
                         )
                     elif expected == "flag_interaction" and action_type != expected:
-                        reward -= 1.2
+                        reward -= PENALTY_MISSED_CRITICAL
                         self._decision_log.append(
                             f"Missed critical DDI {interaction_id} with {action_type}"
                         )
                     elif action_type == "flag_interaction" and expected != action_type:
-                        reward -= 0.6
+                        reward -= PENALTY_FALSE_POSITIVE_FLAG
                         self._decision_log.append(
                             f"False-positive critical flag on {interaction_id}"
                         )
                     else:
-                        reward -= 0.25
+                        reward -= PENALTY_SUBOPTIMAL
                         self._decision_log.append(
                             f"Suboptimal triage for {interaction_id}: chose {action_type}, expected {expected}"
                         )
@@ -275,14 +294,19 @@ class DdiEnvironment(Environment):
                     self._suggested_regimens.add(regimen_id)
                     required = set(self._patient_case.get("required_regimens", []))
                     if regimen_id in required:
-                        reward += 0.9
+                        reward += REWARD_REQUIRED_REGIMEN
                         self._decision_log.append(
                             f"High-value alternative accepted: {regimen_id}"
                         )
-                    else:
-                        reward += 0.2
+                    elif option["expected_risk_delta"] >= HIGH_IMPACT_REGIMEN_DELTA:
+                        reward += REWARD_OPTIONAL_HIGH_IMPACT
                         self._decision_log.append(
-                            f"Low-impact alternative accepted: {regimen_id}"
+                            f"Optional high-impact alternative accepted: {regimen_id}"
+                        )
+                    else:
+                        reward -= PENALTY_OPTIONAL_LOW_IMPACT
+                        self._decision_log.append(
+                            f"Low-impact alternative discouraged: {regimen_id}"
                         )
 
         elif action_type == "finish":
@@ -317,7 +341,7 @@ class DdiEnvironment(Environment):
 
         if done:
             final_score = self._final_score()
-            reward += final_score - 0.5
+            reward += TERMINAL_SCORE_WEIGHT * (final_score - 0.5)
             return self._build_observation(
                 done=True,
                 reward=round(reward, 4),

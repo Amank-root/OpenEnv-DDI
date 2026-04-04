@@ -142,6 +142,13 @@ Set environment variables:
 export API_BASE_URL=https://router.huggingface.co/v1
 export MODEL_NAME=<your-model>
 export HF_TOKEN=<your-token>
+# Optional fallbacks for API credentials
+export API_KEY=<your-token>
+export OPENAI_API_KEY=<your-token>
+
+# Optional runtime controls
+export TASK_EPISODES=3
+export MAX_STEPS=16
 ```
 
 Run baseline:

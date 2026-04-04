@@ -45,3 +45,5 @@ coverage.xml
 *.swo
 __pycache__/
 server/__pycache__/
+task_info/
+openenv_ddi.egg-info/

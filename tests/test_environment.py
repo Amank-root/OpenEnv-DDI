@@ -75,3 +75,96 @@ def test_deterministic_trajectory() -> None:
     assert last_a.done is True
     assert last_b.done is True
     assert last_a.final_score == last_b.final_score
+
+
+def test_invalid_interaction_id_penalized() -> None:
+    env = DdiEnvironment()
+    env.reset()
+
+    result = env.step(
+        DdiAction(action_type="flag_interaction", interaction_id="INT-UNKNOWN", rationale="invalid")
+    )
+
+    assert result.done is False
+    assert result.reward is not None
+    assert result.reward < 0.0
+
+
+def test_state_progression_tracks_steps() -> None:
+    env = DdiEnvironment()
+    env.reset()
+    assert env.state.step_count == 0
+
+    env.step(DdiAction(action_type="flag_interaction", interaction_id="INT-E1", rationale="critical"))
+    assert env.state.step_count == 1
+
+
+def test_step_budget_forces_termination() -> None:
+    env = DdiEnvironment()
+    obs = env.reset()
+
+    # Repeat a duplicate decision to consume budget without satisfying objective.
+    result = None
+    for _ in range(obs.step_budget):
+        result = env.step(
+            DdiAction(action_type="flag_interaction", interaction_id="INT-E1", rationale="consume budget")
+        )
+        if result.done:
+            break
+
+    assert result is not None
+    assert result.done is True
+    assert result.steps_used == obs.step_budget
+
+
+def test_false_positive_flag_penalty_exceeds_correct_monitor_reward() -> None:
+    env_bad = DdiEnvironment()
+    env_good = DdiEnvironment()
+
+    env_bad.reset()
+    env_good.reset()
+
+    bad = env_bad.step(
+        DdiAction(action_type="flag_interaction", interaction_id="INT-E3", rationale="over-flag")
+    )
+    good = env_good.step(
+        DdiAction(action_type="monitor", interaction_id="INT-E3", rationale="expected")
+    )
+
+    assert bad.done is False
+    assert good.done is False
+    assert bad.reward is not None
+    assert good.reward is not None
+    assert bad.reward < 0.0
+    assert good.reward > 0.0
+    assert bad.reward < good.reward
+
+
+def test_low_impact_optional_regimen_discouraged_in_hard_task() -> None:
+    env = DdiEnvironment()
+
+    # Advance deterministic cycle to hard task.
+    env.reset()  # easy
+    env.reset()  # medium
+    hard_obs = env.reset()  # hard
+
+    optional_low_impact = None
+    case_required = set(getattr(env, "_patient_case", {}).get("required_regimens", []))
+    for option in hard_obs.substitution_options:
+        if option.regimen_id not in case_required and option.expected_risk_delta < 0.5:
+            optional_low_impact = option.regimen_id
+            break
+
+    assert optional_low_impact is not None
+
+    result = env.step(
+        DdiAction(
+            action_type="suggest_alternative",
+            suggested_regimen_id=optional_low_impact,
+            rationale="test low-impact optional",
+        )
+    )
+
+    assert result.done is False
+    assert result.reward is not None
+    assert result.reward < 0.0

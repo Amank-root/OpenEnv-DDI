@@ -9,10 +9,22 @@ if str(ROOT) not in sys.path:
 
 try:
     from ddi_data import TASK_CASES  # type: ignore[import-not-found]
-    from graders import grade_easy, grade_hard, grade_medium  # type: ignore[import-not-found]
+    from graders import (  # type: ignore[import-not-found]
+        expected_decision,
+        grade_easy,
+        grade_hard,
+        grade_medium,
+        score_regimen_suggestions,
+    )
 except ImportError:
     from ddi.ddi_data import TASK_CASES  # type: ignore[import-not-found]
-    from ddi.graders import grade_easy, grade_hard, grade_medium  # type: ignore[import-not-found]
+    from ddi.graders import (  # type: ignore[import-not-found]
+        expected_decision,
+        grade_easy,
+        grade_hard,
+        grade_medium,
+        score_regimen_suggestions,
+    )
 
 
 def test_grade_ranges() -> None:
@@ -88,3 +100,40 @@ def test_missing_decisions_are_penalized() -> None:
 
     assert score_no_decisions < score_partial
     assert score_no_decisions < 0.5
+
+
+def test_case_pool_size_per_level() -> None:
+    assert len(TASK_CASES["easy"]) >= 6
+    assert len(TASK_CASES["medium"]) >= 6
+    assert len(TASK_CASES["hard"]) >= 6
+
+
+def test_moderate_threshold_behavior_medium() -> None:
+    interaction = {"severity": "moderate"}
+
+    patient_baseline = {"age": 79, "labs": {"egfr": 45.0}}
+    patient_age_trigger = {"age": 80, "labs": {"egfr": 45.0}}
+    patient_renal_trigger = {"age": 79, "labs": {"egfr": 44.0}}
+
+    assert expected_decision(interaction, patient_baseline, "medium") == "monitor"
+    assert expected_decision(interaction, patient_age_trigger, "medium") == "flag_interaction"
+    assert expected_decision(interaction, patient_renal_trigger, "medium") == "flag_interaction"
+
+
+def test_minor_escalation_in_high_risk_medium() -> None:
+    interaction = {"severity": "minor"}
+
+    patient_lower_risk = {"age": 84, "labs": {"egfr": 30.0}}
+    patient_higher_risk = {"age": 86, "labs": {"egfr": 29.0}}
+
+    assert expected_decision(interaction, patient_lower_risk, "medium") == "ignore"
+    assert expected_decision(interaction, patient_higher_risk, "medium") == "monitor"
+
+
+def test_over_suggestion_penalized() -> None:
+    required = ["REG-1", "REG-2", "REG-3"]
+
+    score_exact = score_regimen_suggestions(required, {"REG-1", "REG-2", "REG-3"})
+    score_over = score_regimen_suggestions(required, {"REG-1", "REG-2", "REG-3", "REG-4"})
+
+    assert score_exact > score_over

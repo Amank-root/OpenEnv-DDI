@@ -51,17 +51,37 @@ All items below **must pass**, or your submission will be **disqualified**.
 
 # Mandatory Additional Info
 
-[] The inference script must be named `inference.py` and placed in the root directory of the project
-[] Participants must use OpenAI Client for all LLM calls using above variables
-[] Participants must emit structured stdout logs strictly following the [START], [STEP], and [END] format defined in the sample inference.py provided below. Any deviation in field names, ordering, or formatting will result in incorrect evaluation scoring. Refer to the Sample Inference Script for the complete format specification and examples.
+- [ ] The inference script must be named `inference.py` and placed in the root directory of the project
+- [ ] Participants must use OpenAI Client for all LLM calls using the variables documented below
+- [ ] Participants must emit structured stdout logs strictly following the [START], [STEP], and [END] format defined in the sample inference.py provided below. Any deviation in field names, ordering, or formatting will result in incorrect evaluation scoring.
 
 ---
 
 ## 🔐 Environment Variables
 
-Ensure the following environment variables are defined:
+Set the baseline variables using this credential precedence:
+
+1. `HF_TOKEN`
+2. `API_KEY`
+3. `OPENAI_API_KEY`
+
+Required:
 
 ```bash
 API_BASE_URL=<your_api_endpoint>
 MODEL_NAME=<your_model_name>
 HF_TOKEN=<your_huggingface_token>
+```
+
+Optional (recommended):
+
+```bash
+API_KEY=<fallback_api_key>
+OPENAI_API_KEY=<fallback_api_key>
+ENV_BASE_URL=<running_env_server_url>
+LOCAL_ENV_BASE_URL=http://localhost:8000
+ENV_IMAGE=ddi-env:latest
+DOCKER_READY_TIMEOUT=90
+TASK_EPISODES=3
+MAX_STEPS=16
+```

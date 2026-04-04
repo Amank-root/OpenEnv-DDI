@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+__pycache__
 *.py[cod]
 *$py.class
 
@@ -47,3 +48,4 @@ __pycache__/
 server/__pycache__/
 task_info/
 openenv_ddi.egg-info/
+task_info/inference.sample.py

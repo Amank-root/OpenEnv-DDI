@@ -19,7 +19,9 @@ class DdiCandidate(BaseModel):
     drug_a: str = Field(..., description="First drug in the interaction pair")
     drug_b: str = Field(..., description="Second drug in the interaction pair")
     severity: Literal["contraindicated", "major", "moderate", "minor"]
-    evidence: str = Field(..., description="Short clinical rationale for the interaction")
+    evidence: str = Field(
+        ..., description="Short clinical rationale for the interaction"
+    )
 
 
 class SubstitutionOption(BaseModel):

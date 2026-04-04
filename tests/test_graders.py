@@ -116,8 +116,14 @@ def test_moderate_threshold_behavior_medium() -> None:
     patient_renal_trigger = {"age": 79, "labs": {"egfr": 44.0}}
 
     assert expected_decision(interaction, patient_baseline, "medium") == "monitor"
-    assert expected_decision(interaction, patient_age_trigger, "medium") == "flag_interaction"
-    assert expected_decision(interaction, patient_renal_trigger, "medium") == "flag_interaction"
+    assert (
+        expected_decision(interaction, patient_age_trigger, "medium")
+        == "flag_interaction"
+    )
+    assert (
+        expected_decision(interaction, patient_renal_trigger, "medium")
+        == "flag_interaction"
+    )
 
 
 def test_minor_escalation_in_high_risk_medium() -> None:
@@ -134,6 +140,8 @@ def test_over_suggestion_penalized() -> None:
     required = ["REG-1", "REG-2", "REG-3"]
 
     score_exact = score_regimen_suggestions(required, {"REG-1", "REG-2", "REG-3"})
-    score_over = score_regimen_suggestions(required, {"REG-1", "REG-2", "REG-3", "REG-4"})
+    score_over = score_regimen_suggestions(
+        required, {"REG-1", "REG-2", "REG-3", "REG-4"}
+    )
 
     assert score_exact > score_over

@@ -37,11 +37,14 @@ API_BASE_URL = normalize_base_url(
     os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 )
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-if not API_KEY:
-    API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL_NAME = os.getenv("MODEL_NAME")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL")
-ENV_IMAGE = os.getenv("ENV_IMAGE", "ddi-env:latest")
+# Align with sample naming while still accepting common aliases.
+IMAGE_NAME = (
+    os.getenv("LOCAL_IMAGE_NAME")
+    or os.getenv("IMAGE_NAME")
+    or os.getenv("ENV_IMAGE", "ddi-env:latest")
+)
 DEFAULT_LOCAL_ENV_BASE_URL = os.getenv("LOCAL_ENV_BASE_URL", "http://localhost:8000")
 DOCKER_READY_TIMEOUT = float(os.getenv("DOCKER_READY_TIMEOUT", "90"))
 HARD_REGIMEN_DELTA_THRESHOLD = float(os.getenv("HARD_REGIMEN_DELTA_THRESHOLD", "0.5"))
@@ -68,7 +71,9 @@ def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
-def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+def log_step(
+    step: int, action: str, reward: float, done: bool, error: Optional[str]
+) -> None:
     # Keep STEP output single-line even if upstream error text contains newlines.
     error_val = "null" if not error else " ".join(str(error).splitlines())
     action_val = " ".join(str(action).splitlines())
@@ -79,10 +84,10 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{reward:.2f}" for reward in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
         flush=True,
     )
 
@@ -155,12 +160,18 @@ def heuristic_action(
     decided_interactions: Optional[set[str]] = None,
     suggested_regimens: Optional[set[str]] = None,
 ) -> Dict:
-    decisions = observation.metadata.get("decisions", {}) if observation.metadata else {}
+    decisions = (
+        observation.metadata.get("decisions", {}) if observation.metadata else {}
+    )
     decided = set(decisions.keys())
     if decided_interactions:
         decided |= decided_interactions
 
-    suggested = set(observation.metadata.get("suggested_regimens", [])) if observation.metadata else set()
+    suggested = (
+        set(observation.metadata.get("suggested_regimens", []))
+        if observation.metadata
+        else set()
+    )
     if suggested_regimens:
         suggested |= suggested_regimens
 
@@ -228,7 +239,9 @@ def heuristic_action(
     }
 
 
-def expected_treatment_action(observation: DdiObservation, interaction_id: str) -> str | None:
+def expected_treatment_action(
+    observation: DdiObservation, interaction_id: str
+) -> str | None:
     for candidate in observation.ddi_candidates:
         if candidate.interaction_id != interaction_id:
             continue
@@ -252,7 +265,9 @@ def expected_treatment_action(observation: DdiObservation, interaction_id: str) 
 
 
 def unresolved_interaction_ids(observation: DdiObservation) -> set[str]:
-    decisions = observation.metadata.get("decisions", {}) if observation.metadata else {}
+    decisions = (
+        observation.metadata.get("decisions", {}) if observation.metadata else {}
+    )
     decided = set(decisions.keys())
     return {
         item.interaction_id
@@ -265,7 +280,11 @@ def pending_high_value_regimens(observation: DdiObservation) -> list[str]:
     if observation.task_level != "hard":
         return []
 
-    suggested = set(observation.metadata.get("suggested_regimens", [])) if observation.metadata else set()
+    suggested = (
+        set(observation.metadata.get("suggested_regimens", []))
+        if observation.metadata
+        else set()
+    )
     options = sorted(
         observation.substitution_options,
         key=lambda item: item.expected_risk_delta,
@@ -274,7 +293,8 @@ def pending_high_value_regimens(observation: DdiObservation) -> list[str]:
     return [
         item.regimen_id
         for item in options
-        if item.regimen_id not in suggested and item.expected_risk_delta >= HARD_REGIMEN_DELTA_THRESHOLD
+        if item.regimen_id not in suggested
+        and item.expected_risk_delta >= HARD_REGIMEN_DELTA_THRESHOLD
     ]
 
 
@@ -288,13 +308,17 @@ def apply_action_guardrails(
     interaction_id = payload.get("interaction_id")
     suggested_regimen_id = payload.get("suggested_regimen_id")
 
-    metadata_decisions = observation.metadata.get("decisions", {}) if observation.metadata else {}
+    metadata_decisions = (
+        observation.metadata.get("decisions", {}) if observation.metadata else {}
+    )
     all_decided = set(metadata_decisions.keys())
     if decided_interactions:
         all_decided |= decided_interactions
 
     metadata_suggested = (
-        set(observation.metadata.get("suggested_regimens", [])) if observation.metadata else set()
+        set(observation.metadata.get("suggested_regimens", []))
+        if observation.metadata
+        else set()
     )
     if suggested_regimens:
         metadata_suggested |= suggested_regimens
@@ -349,7 +373,9 @@ def apply_action_guardrails(
         if suggested_regimen_id in metadata_suggested:
             return heuristic_action(observation, all_decided, metadata_suggested)
 
-        valid_option_ids = {item.regimen_id for item in observation.substitution_options}
+        valid_option_ids = {
+            item.regimen_id for item in observation.substitution_options
+        }
         if suggested_regimen_id not in valid_option_ids:
             return heuristic_action(observation, all_decided, metadata_suggested)
 
@@ -486,14 +512,14 @@ async def create_env() -> DdiEnv | LocalDdiEnvAdapter:
 
     try:
         provider = LocalDockerProvider()
-        base_url = provider.start_container(ENV_IMAGE)
+        base_url = provider.start_container(IMAGE_NAME)
 
         try:
             provider.wait_for_ready(base_url, timeout_s=DOCKER_READY_TIMEOUT)
         except TimeoutError as exc:
             provider.stop_container()
             raise RuntimeError(
-                f"Container for image '{ENV_IMAGE}' did not become ready within {DOCKER_READY_TIMEOUT}s. "
+                f"Container for image '{IMAGE_NAME}' did not become ready within {DOCKER_READY_TIMEOUT}s. "
                 "Set ENV_BASE_URL to a running server (e.g. http://localhost:8000), "
                 "or rebuild and test the image locally."
             ) from exc
@@ -511,6 +537,7 @@ async def run_baseline() -> None:
     episode_scores: List[float] = []
     steps_taken = 0
     success = False
+    score = 0.0
     env = None
 
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME or "unknown")
@@ -552,7 +579,9 @@ async def run_baseline() -> None:
                             suggested_regimens=local_suggested_regimens,
                         )
                     else:
-                        payload = await asyncio.to_thread(call_model, client, observation, history)
+                        payload = await asyncio.to_thread(
+                            call_model, client, observation, history
+                        )
                         payload = apply_action_guardrails(
                             payload,
                             observation,
@@ -567,9 +596,15 @@ async def run_baseline() -> None:
                     )
 
                 action = DdiAction(**payload)
-                if action.action_type in {"flag_interaction", "monitor", "ignore"} and action.interaction_id:
+                if (
+                    action.action_type in {"flag_interaction", "monitor", "ignore"}
+                    and action.interaction_id
+                ):
                     local_decided_interactions.add(action.interaction_id)
-                if action.action_type == "suggest_alternative" and action.suggested_regimen_id:
+                if (
+                    action.action_type == "suggest_alternative"
+                    and action.suggested_regimen_id
+                ):
                     local_suggested_regimens.add(action.suggested_regimen_id)
 
                 result = await maybe_await(env.step(action))
@@ -597,7 +632,9 @@ async def run_baseline() -> None:
 
             if not done:
                 # Force episode scoring when a custom MAX_STEPS truncates the policy loop.
-                finish_action = DdiAction(action_type="finish", rationale="max-step fallback")
+                finish_action = DdiAction(
+                    action_type="finish", rationale="max-step fallback"
+                )
                 result = await maybe_await(env.step(finish_action))
                 observation = result.observation
                 reward = float(result.reward or 0.0)
@@ -618,10 +655,11 @@ async def run_baseline() -> None:
                 episode_scores.append(float(observation.final_score))
 
         if episode_scores:
-            mean_score = sum(episode_scores) / len(episode_scores)
-            success = mean_score >= SUCCESS_SCORE_THRESHOLD
+            score = max(0.0, min(1.0, sum(episode_scores) / len(episode_scores)))
+            success = score >= SUCCESS_SCORE_THRESHOLD
     except Exception:
         success = False
+        score = 0.0
     finally:
         if env is not None:
             try:
@@ -629,7 +667,7 @@ async def run_baseline() -> None:
             except Exception:
                 pass
 
-        log_end(success=success, steps=steps_taken, rewards=rewards)
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 if __name__ == "__main__":

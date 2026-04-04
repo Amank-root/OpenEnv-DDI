@@ -18,9 +18,7 @@ except ImportError:
     from models import DdiAction, DdiObservation
 
 
-class DdiEnv(
-    EnvClient[DdiAction, DdiObservation, State]
-):
+class DdiEnv(EnvClient[DdiAction, DdiObservation, State]):
     """
     Client for the Ddi Environment.
 

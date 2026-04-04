@@ -58,8 +58,14 @@ def test_deterministic_trajectory() -> None:
     assert obs_a.patient_id == obs_b.patient_id
 
     sequence = [
-        DdiAction(action_type="flag_interaction", interaction_id="INT-E1", rationale="critical"),
-        DdiAction(action_type="flag_interaction", interaction_id="INT-E2", rationale="major"),
+        DdiAction(
+            action_type="flag_interaction",
+            interaction_id="INT-E1",
+            rationale="critical",
+        ),
+        DdiAction(
+            action_type="flag_interaction", interaction_id="INT-E2", rationale="major"
+        ),
         DdiAction(action_type="monitor", interaction_id="INT-E3", rationale="monitor"),
     ]
 
@@ -82,7 +88,11 @@ def test_invalid_interaction_id_penalized() -> None:
     env.reset()
 
     result = env.step(
-        DdiAction(action_type="flag_interaction", interaction_id="INT-UNKNOWN", rationale="invalid")
+        DdiAction(
+            action_type="flag_interaction",
+            interaction_id="INT-UNKNOWN",
+            rationale="invalid",
+        )
     )
 
     assert result.done is False
@@ -95,7 +105,13 @@ def test_state_progression_tracks_steps() -> None:
     env.reset()
     assert env.state.step_count == 0
 
-    env.step(DdiAction(action_type="flag_interaction", interaction_id="INT-E1", rationale="critical"))
+    env.step(
+        DdiAction(
+            action_type="flag_interaction",
+            interaction_id="INT-E1",
+            rationale="critical",
+        )
+    )
     assert env.state.step_count == 1
 
 
@@ -107,7 +123,11 @@ def test_step_budget_forces_termination() -> None:
     result = None
     for _ in range(obs.step_budget):
         result = env.step(
-            DdiAction(action_type="flag_interaction", interaction_id="INT-E1", rationale="consume budget")
+            DdiAction(
+                action_type="flag_interaction",
+                interaction_id="INT-E1",
+                rationale="consume budget",
+            )
         )
         if result.done:
             break
@@ -125,7 +145,11 @@ def test_false_positive_flag_penalty_exceeds_correct_monitor_reward() -> None:
     env_good.reset()
 
     bad = env_bad.step(
-        DdiAction(action_type="flag_interaction", interaction_id="INT-E3", rationale="over-flag")
+        DdiAction(
+            action_type="flag_interaction",
+            interaction_id="INT-E3",
+            rationale="over-flag",
+        )
     )
     good = env_good.step(
         DdiAction(action_type="monitor", interaction_id="INT-E3", rationale="expected")

@@ -96,8 +96,13 @@ Hard task combines interaction triage score and regimen suggestion score.
 ├── models.py
 ├── openenv.yaml
 ├── pyproject.toml
+├── task_cases/
+│   ├── easy_cases.py
+│   ├── medium_cases.py
+│   └── hard_cases.py
 ├── task_registry.py
 ├── tests/
+│   ├── test_accuracy.py
 │   ├── test_environment.py
 │   └── test_graders.py
 └── server/
@@ -105,6 +110,8 @@ Hard task combines interaction triage score and regimen suggestion score.
     ├── ddi_environment.py
     └── Dockerfile
 ```
+
+  `ddi_data.py` now contains shared constants and composes `TASK_CASES` from level-specific modules in `task_cases/`. This keeps large deterministic datasets separate from environment logic and grading logic.
 
 ## Local Setup
 
@@ -142,9 +149,8 @@ Set environment variables:
 export API_BASE_URL=https://router.huggingface.co/v1
 export MODEL_NAME=<your-model>
 export HF_TOKEN=<your-token>
-# Optional fallbacks for API credentials
+# Optional fallback for API credentials
 export API_KEY=<your-token>
-export OPENAI_API_KEY=<your-token>
 
 # Optional runtime controls
 export TASK_EPISODES=3
@@ -160,7 +166,9 @@ python inference.py
 Optional environment connection variables:
 
 - `ENV_BASE_URL`: connect to existing server URL.
-- `ENV_IMAGE`: Docker image name when running with `from_docker_image`.
+- `LOCAL_IMAGE_NAME`: preferred Docker image variable when running with `from_docker_image`.
+- `IMAGE_NAME`: fallback Docker image variable.
+- `ENV_IMAGE`: legacy fallback Docker image variable.
 
 ## Docker
 

@@ -25,5 +25,10 @@ openenv_ddi.egg-info/top_level.txt
 server/__init__.py
 server/app.py
 server/ddi_environment.py
+task_cases/__init__.py
+task_cases/easy_cases.py
+task_cases/hard_cases.py
+task_cases/medium_cases.py
+tests/test_accuracy.py
 tests/test_environment.py
 tests/test_graders.py

@@ -43,5 +43,5 @@ server = "ddi.server.app:main"
 
 [tool.setuptools]
 include-package-data = true
-packages = ["ddi", "ddi.server"]
-package-dir = { "ddi" = ".", "ddi.server" = "server" }
+packages = ["ddi", "ddi.server", "ddi.task_cases"]
+package-dir = { "ddi" = ".", "ddi.server" = "server", "ddi.task_cases" = "task_cases" }

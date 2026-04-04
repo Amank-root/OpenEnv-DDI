@@ -63,7 +63,6 @@ Set the baseline variables using this credential precedence:
 
 1. `HF_TOKEN`
 2. `API_KEY`
-3. `OPENAI_API_KEY`
 
 Required:
 
@@ -77,9 +76,10 @@ Optional (recommended):
 
 ```bash
 API_KEY=<fallback_api_key>
-OPENAI_API_KEY=<fallback_api_key>
 ENV_BASE_URL=<running_env_server_url>
 LOCAL_ENV_BASE_URL=http://localhost:8000
+LOCAL_IMAGE_NAME=ddi-env:latest
+IMAGE_NAME=ddi-env:latest
 ENV_IMAGE=ddi-env:latest
 DOCKER_READY_TIMEOUT=90
 TASK_EPISODES=3

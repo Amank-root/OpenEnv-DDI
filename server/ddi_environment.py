@@ -94,7 +94,9 @@ class DdiEnvironment(Environment):
         remaining = 0
         for interaction in self._patient_case["interactions"]:
             interaction_id = interaction["interaction_id"]
-            expected = expected_decision(interaction, self._patient_case, self._task_level)
+            expected = expected_decision(
+                interaction, self._patient_case, self._task_level
+            )
             decision = self._decisions.get(interaction_id)
             if expected == "flag_interaction" and decision != "flag_interaction":
                 remaining += 1
@@ -111,7 +113,10 @@ class DdiEnvironment(Environment):
                 self._patient_case,
                 self._task_level,
             )
-            if expected_decision(interaction, self._patient_case, self._task_level) == "flag_interaction":
+            if (
+                expected_decision(interaction, self._patient_case, self._task_level)
+                == "flag_interaction"
+            ):
                 base_risk += criticality
                 if self._decisions.get(interaction_id) == "flag_interaction":
                     mitigated += criticality
@@ -150,7 +155,9 @@ class DdiEnvironment(Environment):
         )
 
     def _should_auto_finish(self) -> bool:
-        all_interactions_decided = len(self._decisions) >= len(self._patient_case["interactions"])
+        all_interactions_decided = len(self._decisions) >= len(
+            self._patient_case["interactions"]
+        )
         if self._task_level != "hard":
             return all_interactions_decided
 
@@ -164,7 +171,9 @@ class DdiEnvironment(Environment):
         reward: float,
         final_score: float | None = None,
     ) -> DdiObservation:
-        candidates = [DdiCandidate(**item) for item in self._patient_case["interactions"]]
+        candidates = [
+            DdiCandidate(**item) for item in self._patient_case["interactions"]
+        ]
         substitutions = [
             SubstitutionOption(**item)
             for item in self._patient_case.get("substitution_options", [])
@@ -207,6 +216,110 @@ class DdiEnvironment(Environment):
 
         return self._build_observation(done=False, reward=0.0)
 
+    def _find_interaction(self, interaction_id: str | None) -> dict | None:
+        for item in self._patient_case["interactions"]:
+            if item["interaction_id"] == interaction_id:
+                return item
+        return None
+
+    def _apply_triage_action(self, action: DdiAction) -> float:
+        interaction = self._find_interaction(action.interaction_id)
+        if not interaction:
+            self._decision_log.append(
+                f"Invalid interaction id: {action.interaction_id}"
+            )
+            return -0.4
+
+        interaction_id = interaction["interaction_id"]
+        if interaction_id in self._decisions:
+            self._decision_log.append(f"Duplicate decision for {interaction_id}")
+            return -0.1
+
+        expected = expected_decision(interaction, self._patient_case, self._task_level)
+        action_type = action.action_type
+        self._decisions[interaction_id] = action_type
+
+        if action_type == expected:
+            self._decision_log.append(
+                f"Correct triage for {interaction_id}: {action_type}"
+            )
+            return (
+                REWARD_CORRECT_FLAG
+                if expected == "flag_interaction"
+                else REWARD_CORRECT_NON_FLAG
+            )
+
+        if expected == "flag_interaction" and action_type != expected:
+            self._decision_log.append(
+                f"Missed critical DDI {interaction_id} with {action_type}"
+            )
+            return -PENALTY_MISSED_CRITICAL
+
+        if action_type == "flag_interaction" and expected != action_type:
+            self._decision_log.append(
+                f"False-positive critical flag on {interaction_id}"
+            )
+            return -PENALTY_FALSE_POSITIVE_FLAG
+
+        self._decision_log.append(
+            f"Suboptimal triage for {interaction_id}: chose {action_type}, expected {expected}"
+        )
+        return -PENALTY_SUBOPTIMAL
+
+    def _apply_substitution_action(self, action: DdiAction) -> float:
+        if self._task_level != "hard":
+            self._decision_log.append("Alternative suggestion used outside hard task")
+            return -0.3
+
+        option_by_id = {
+            option["regimen_id"]: option
+            for option in self._patient_case.get("substitution_options", [])
+        }
+        regimen_id = action.suggested_regimen_id
+        option = option_by_id.get(regimen_id)
+
+        if not option:
+            self._decision_log.append(f"Invalid substitution option: {regimen_id}")
+            return -0.45
+
+        if regimen_id in self._suggested_regimens:
+            self._decision_log.append(
+                f"Duplicate substitution suggestion: {regimen_id}"
+            )
+            return -0.1
+
+        self._suggested_regimens.add(regimen_id)
+        required = set(self._patient_case.get("required_regimens", []))
+
+        if regimen_id in required:
+            self._decision_log.append(f"High-value alternative accepted: {regimen_id}")
+            return REWARD_REQUIRED_REGIMEN
+
+        if option["expected_risk_delta"] >= HIGH_IMPACT_REGIMEN_DELTA:
+            self._decision_log.append(
+                f"Optional high-impact alternative accepted: {regimen_id}"
+            )
+            return REWARD_OPTIONAL_HIGH_IMPACT
+
+        self._decision_log.append(f"Low-impact alternative discouraged: {regimen_id}")
+        return -PENALTY_OPTIONAL_LOW_IMPACT
+
+    def _apply_finish_action(self) -> tuple[float, bool]:
+        remaining_critical = self._remaining_critical()
+        missing_required = 0
+        if self._task_level == "hard":
+            required = set(self._patient_case.get("required_regimens", []))
+            missing_required = len(required - self._suggested_regimens)
+
+        if remaining_critical > 0 or missing_required > 0:
+            self._decision_log.append(
+                "Agent requested premature finish before completing objectives"
+            )
+            return -(0.2 + 0.15 * remaining_critical + 0.1 * missing_required), True
+
+        self._decision_log.append("Agent requested episode finish")
+        return 0.15, True
+
     def step(self, action: DdiAction) -> DdiObservation:  # type: ignore[override]
         """Execute one triage action and return shaped reward feedback."""
         self._state.step_count += 1
@@ -216,116 +329,14 @@ class DdiEnvironment(Environment):
         action_type = action.action_type
 
         if action_type in {"flag_interaction", "monitor", "ignore"}:
-            interaction = None
-            for item in self._patient_case["interactions"]:
-                if item["interaction_id"] == action.interaction_id:
-                    interaction = item
-                    break
-
-            if not interaction:
-                reward -= 0.4
-                self._decision_log.append(
-                    f"Invalid interaction id: {action.interaction_id}"
-                )
-            else:
-                interaction_id = interaction["interaction_id"]
-                if interaction_id in self._decisions:
-                    reward -= 0.1
-                    self._decision_log.append(
-                        f"Duplicate decision for {interaction_id}"
-                    )
-                else:
-                    expected = expected_decision(
-                        interaction,
-                        self._patient_case,
-                        self._task_level,
-                    )
-                    self._decisions[interaction_id] = action_type
-                    if action_type == expected:
-                        reward += (
-                            REWARD_CORRECT_FLAG
-                            if expected == "flag_interaction"
-                            else REWARD_CORRECT_NON_FLAG
-                        )
-                        self._decision_log.append(
-                            f"Correct triage for {interaction_id}: {action_type}"
-                        )
-                    elif expected == "flag_interaction" and action_type != expected:
-                        reward -= PENALTY_MISSED_CRITICAL
-                        self._decision_log.append(
-                            f"Missed critical DDI {interaction_id} with {action_type}"
-                        )
-                    elif action_type == "flag_interaction" and expected != action_type:
-                        reward -= PENALTY_FALSE_POSITIVE_FLAG
-                        self._decision_log.append(
-                            f"False-positive critical flag on {interaction_id}"
-                        )
-                    else:
-                        reward -= PENALTY_SUBOPTIMAL
-                        self._decision_log.append(
-                            f"Suboptimal triage for {interaction_id}: chose {action_type}, expected {expected}"
-                        )
+            reward += self._apply_triage_action(action)
 
         elif action_type == "suggest_alternative":
-            if self._task_level != "hard":
-                reward -= 0.3
-                self._decision_log.append(
-                    "Alternative suggestion used outside hard task"
-                )
-            else:
-                option_by_id = {
-                    option["regimen_id"]: option
-                    for option in self._patient_case.get("substitution_options", [])
-                }
-                regimen_id = action.suggested_regimen_id
-                option = option_by_id.get(regimen_id)
-
-                if not option:
-                    reward -= 0.45
-                    self._decision_log.append(
-                        f"Invalid substitution option: {regimen_id}"
-                    )
-                elif regimen_id in self._suggested_regimens:
-                    reward -= 0.1
-                    self._decision_log.append(
-                        f"Duplicate substitution suggestion: {regimen_id}"
-                    )
-                else:
-                    self._suggested_regimens.add(regimen_id)
-                    required = set(self._patient_case.get("required_regimens", []))
-                    if regimen_id in required:
-                        reward += REWARD_REQUIRED_REGIMEN
-                        self._decision_log.append(
-                            f"High-value alternative accepted: {regimen_id}"
-                        )
-                    elif option["expected_risk_delta"] >= HIGH_IMPACT_REGIMEN_DELTA:
-                        reward += REWARD_OPTIONAL_HIGH_IMPACT
-                        self._decision_log.append(
-                            f"Optional high-impact alternative accepted: {regimen_id}"
-                        )
-                    else:
-                        reward -= PENALTY_OPTIONAL_LOW_IMPACT
-                        self._decision_log.append(
-                            f"Low-impact alternative discouraged: {regimen_id}"
-                        )
+            reward += self._apply_substitution_action(action)
 
         elif action_type == "finish":
-            done = True
-            remaining_critical = self._remaining_critical()
-            if self._task_level == "hard":
-                required = set(self._patient_case.get("required_regimens", []))
-                missing_required = len(required - self._suggested_regimens)
-            else:
-                missing_required = 0
-
-            if remaining_critical > 0 or missing_required > 0:
-                reward -= 0.2 + 0.15 * remaining_critical + 0.1 * missing_required
-                self._decision_log.append(
-                    "Agent requested premature finish before completing objectives"
-                )
-            else:
-                reward += 0.15
-                self._decision_log.append("Agent requested episode finish")
+            finish_reward, done = self._apply_finish_action()
+            reward += finish_reward
 
         else:
             reward -= 0.2

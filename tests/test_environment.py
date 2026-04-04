@@ -8,11 +8,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 try:
-    from ddi import DdiAction
-    from ddi.server.ddi_environment import DdiEnvironment
+    from models import DdiAction  # type: ignore[import-not-found]
+    from server.ddi_environment import DdiEnvironment  # type: ignore[import-not-found]
 except ImportError:
-    from models import DdiAction
-    from server.ddi_environment import DdiEnvironment
+    from ddi import DdiAction  # type: ignore[import-not-found]
+    from ddi.server.ddi_environment import DdiEnvironment  # type: ignore[import-not-found]
 
 
 def test_task_cycle_order() -> None:
@@ -35,6 +35,17 @@ def test_final_score_bounded() -> None:
     assert result.done is True
     assert result.final_score is not None
     assert 0.0 <= result.final_score <= 1.0
+
+
+def test_premature_finish_is_penalized() -> None:
+    env = DdiEnvironment()
+    env.reset()
+
+    result = env.step(DdiAction(action_type="finish", rationale="early exit"))
+
+    assert result.done is True
+    assert result.reward is not None
+    assert result.reward < 0.0
 
 
 def test_deterministic_trajectory() -> None:

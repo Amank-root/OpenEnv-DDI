@@ -49,6 +49,14 @@ All items below **must pass**, or your submission will be **disqualified**.
 
 ---
 
+# Mandatory Additional Info
+
+[] The inference script must be named `inference.py` and placed in the root directory of the project
+[] Participants must use OpenAI Client for all LLM calls using above variables
+[] Participants must emit structured stdout logs strictly following the [START], [STEP], and [END] format defined in the sample inference.py provided below. Any deviation in field names, ordering, or formatting will result in incorrect evaluation scoring. Refer to the Sample Inference Script for the complete format specification and examples.
+
+---
+
 ## 🔐 Environment Variables
 
 Ensure the following environment variables are defined:

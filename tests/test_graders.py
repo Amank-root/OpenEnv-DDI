@@ -8,11 +8,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 try:
-    from ddi.ddi_data import TASK_CASES
-    from ddi.graders import grade_easy, grade_hard, grade_medium
+    from ddi_data import TASK_CASES  # type: ignore[import-not-found]
+    from graders import grade_easy, grade_hard, grade_medium  # type: ignore[import-not-found]
 except ImportError:
-    from ddi_data import TASK_CASES
-    from graders import grade_easy, grade_hard, grade_medium
+    from ddi.ddi_data import TASK_CASES  # type: ignore[import-not-found]
+    from ddi.graders import grade_easy, grade_hard, grade_medium  # type: ignore[import-not-found]
 
 
 def test_grade_ranges() -> None:
@@ -70,3 +70,21 @@ def test_grade_determinism() -> None:
     )
 
     assert score_1 == score_2
+
+
+def test_missing_decisions_are_penalized() -> None:
+    easy_case = TASK_CASES["easy"][0]
+
+    score_no_decisions = grade_easy(
+        interactions=easy_case["interactions"],
+        decisions={},
+        patient=easy_case,
+    )
+    score_partial = grade_easy(
+        interactions=easy_case["interactions"],
+        decisions={"INT-E1": "flag_interaction"},
+        patient=easy_case,
+    )
+
+    assert score_no_decisions < score_partial
+    assert score_no_decisions < 0.5

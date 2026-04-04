@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import inspect
 import json
 from dotenv import load_dotenv
@@ -18,8 +19,8 @@ try:
     from client import DdiEnv
     from models import DdiAction, DdiObservation
 except ImportError:
-    from ddi.client import DdiEnv
-    from ddi.models import DdiAction, DdiObservation
+    from ddi.client import DdiEnv  # type: ignore[import-not-found]
+    from ddi.models import DdiAction, DdiObservation  # type: ignore[import-not-found]
 
 load_dotenv()  # Load environment variables from .env file if present
 
@@ -36,18 +37,21 @@ API_BASE_URL = normalize_base_url(
     os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 )
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+if not API_KEY:
+    API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL_NAME = os.getenv("MODEL_NAME")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL")
 ENV_IMAGE = os.getenv("ENV_IMAGE", "ddi-env:latest")
 DEFAULT_LOCAL_ENV_BASE_URL = os.getenv("LOCAL_ENV_BASE_URL", "http://localhost:8000")
 DOCKER_READY_TIMEOUT = float(os.getenv("DOCKER_READY_TIMEOUT", "90"))
 HARD_REGIMEN_DELTA_THRESHOLD = float(os.getenv("HARD_REGIMEN_DELTA_THRESHOLD", "0.5"))
+TASK_EPISODES = int(os.getenv("TASK_EPISODES", os.getenv("EPISODES", "3")))
 BENCHMARK = os.getenv("DDI_BENCHMARK", "openenv-ddi")
 TASK_NAME = os.getenv("DDI_TASK_NAME", "ddi-triage")
 MAX_STEPS = int(os.getenv("MAX_STEPS", "16"))
 SUCCESS_SCORE_THRESHOLD = float(os.getenv("SUCCESS_SCORE_THRESHOLD", "0.7"))
 TEMPERATURE = 0.0
-MAX_TOKENS = 250
+MAX_TOKENS = 3500
 JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
 
@@ -146,12 +150,22 @@ def observation_to_prompt(observation: DdiObservation, history: List[str]) -> st
     return json.dumps(payload, indent=2)
 
 
-def heuristic_action(observation: DdiObservation) -> Dict:
+def heuristic_action(
+    observation: DdiObservation,
+    decided_interactions: Optional[set[str]] = None,
+    suggested_regimens: Optional[set[str]] = None,
+) -> Dict:
     decisions = observation.metadata.get("decisions", {}) if observation.metadata else {}
+    decided = set(decisions.keys())
+    if decided_interactions:
+        decided |= decided_interactions
+
     suggested = set(observation.metadata.get("suggested_regimens", [])) if observation.metadata else set()
+    if suggested_regimens:
+        suggested |= suggested_regimens
 
     for candidate in observation.ddi_candidates:
-        if candidate.interaction_id in decisions:
+        if candidate.interaction_id in decided:
             continue
 
         if candidate.severity in {"contraindicated", "major"}:
@@ -195,7 +209,10 @@ def heuristic_action(observation: DdiObservation) -> Dict:
             key=lambda item: item.expected_risk_delta,
             reverse=True,
         ):
-            if option.regimen_id not in suggested and option.expected_risk_delta >= 0.5:
+            if (
+                option.regimen_id not in suggested
+                and option.expected_risk_delta >= HARD_REGIMEN_DELTA_THRESHOLD
+            ):
                 return {
                     "action_type": "suggest_alternative",
                     "interaction_id": None,
@@ -261,21 +278,54 @@ def pending_high_value_regimens(observation: DdiObservation) -> list[str]:
     ]
 
 
-def apply_action_guardrails(payload: Dict, observation: DdiObservation) -> Dict:
+def apply_action_guardrails(
+    payload: Dict,
+    observation: DdiObservation,
+    decided_interactions: Optional[set[str]] = None,
+    suggested_regimens: Optional[set[str]] = None,
+) -> Dict:
     action_type = payload.get("action_type")
     interaction_id = payload.get("interaction_id")
     suggested_regimen_id = payload.get("suggested_regimen_id")
 
-    unresolved = unresolved_interaction_ids(observation)
-    pending_regimens = pending_high_value_regimens(observation)
+    metadata_decisions = observation.metadata.get("decisions", {}) if observation.metadata else {}
+    all_decided = set(metadata_decisions.keys())
+    if decided_interactions:
+        all_decided |= decided_interactions
+
+    metadata_suggested = (
+        set(observation.metadata.get("suggested_regimens", [])) if observation.metadata else set()
+    )
+    if suggested_regimens:
+        metadata_suggested |= suggested_regimens
+
+    unresolved = {
+        item.interaction_id
+        for item in observation.ddi_candidates
+        if item.interaction_id not in all_decided
+    }
+
+    pending_regimens = []
+    if observation.task_level == "hard":
+        options = sorted(
+            observation.substitution_options,
+            key=lambda item: item.expected_risk_delta,
+            reverse=True,
+        )
+        pending_regimens = [
+            item.regimen_id
+            for item in options
+            if item.regimen_id not in metadata_suggested
+            and item.expected_risk_delta >= HARD_REGIMEN_DELTA_THRESHOLD
+        ]
 
     if action_type in {"flag_interaction", "monitor", "ignore"}:
         if interaction_id not in unresolved:
-            return heuristic_action(observation)
+            return heuristic_action(observation, all_decided, metadata_suggested)
 
         expected = expected_treatment_action(observation, interaction_id)
         if expected is None:
-            return heuristic_action(observation)
+            return heuristic_action(observation, all_decided, metadata_suggested)
 
         if action_type != expected:
             return {
@@ -294,14 +344,17 @@ def apply_action_guardrails(payload: Dict, observation: DdiObservation) -> Dict:
 
     if action_type == "suggest_alternative":
         if observation.task_level != "hard" or not suggested_regimen_id:
-            return heuristic_action(observation)
+            return heuristic_action(observation, all_decided, metadata_suggested)
+
+        if suggested_regimen_id in metadata_suggested:
+            return heuristic_action(observation, all_decided, metadata_suggested)
 
         valid_option_ids = {item.regimen_id for item in observation.substitution_options}
         if suggested_regimen_id not in valid_option_ids:
-            return heuristic_action(observation)
+            return heuristic_action(observation, all_decided, metadata_suggested)
 
         if pending_regimens and suggested_regimen_id not in pending_regimens:
-            return heuristic_action(observation)
+            return heuristic_action(observation, all_decided, metadata_suggested)
 
         return {
             "action_type": "suggest_alternative",
@@ -312,9 +365,9 @@ def apply_action_guardrails(payload: Dict, observation: DdiObservation) -> Dict:
 
     if action_type == "finish":
         if unresolved:
-            return heuristic_action(observation)
+            return heuristic_action(observation, all_decided, metadata_suggested)
         if observation.task_level == "hard" and pending_regimens:
-            return heuristic_action(observation)
+            return heuristic_action(observation, all_decided, metadata_suggested)
         return {
             "action_type": "finish",
             "interaction_id": None,
@@ -322,7 +375,7 @@ def apply_action_guardrails(payload: Dict, observation: DdiObservation) -> Dict:
             "rationale": payload.get("rationale", ""),
         }
 
-    return heuristic_action(observation)
+    return heuristic_action(observation, all_decided, metadata_suggested)
 
 
 def parse_action(content: str, observation: DdiObservation) -> Dict:
@@ -373,6 +426,44 @@ async def maybe_await(value):
     return await value if inspect.isawaitable(value) else value
 
 
+@dataclass
+class LocalStepResult:
+    observation: DdiObservation
+    reward: float
+    done: bool
+
+
+class LocalDdiEnvAdapter:
+    """In-process adapter used when no reachable server/container is available."""
+
+    def __init__(self) -> None:
+        try:
+            from server.ddi_environment import DdiEnvironment
+        except ImportError:
+            from ddi.server.ddi_environment import DdiEnvironment  # type: ignore[import-not-found]
+
+        self._env = DdiEnvironment()
+
+    async def reset(self) -> LocalStepResult:
+        observation = self._env.reset()
+        return LocalStepResult(
+            observation=observation,
+            reward=float(observation.reward or 0.0),
+            done=bool(observation.done),
+        )
+
+    async def step(self, action: DdiAction) -> LocalStepResult:
+        observation = self._env.step(action)
+        return LocalStepResult(
+            observation=observation,
+            reward=float(observation.reward or 0.0),
+            done=bool(observation.done),
+        )
+
+    async def close(self) -> None:
+        return None
+
+
 def is_server_ready(base_url: str) -> bool:
     health_url = f"{base_url.rstrip('/')}/health"
     try:
@@ -383,36 +474,41 @@ def is_server_ready(base_url: str) -> bool:
         return False
 
 
-async def create_env() -> DdiEnv:
+async def create_env() -> DdiEnv | LocalDdiEnvAdapter:
     if ENV_BASE_URL:
-        return DdiEnv(base_url=ENV_BASE_URL)
+        if is_server_ready(ENV_BASE_URL):
+            return DdiEnv(base_url=ENV_BASE_URL)
 
     if is_server_ready(DEFAULT_LOCAL_ENV_BASE_URL):
         return DdiEnv(base_url=DEFAULT_LOCAL_ENV_BASE_URL)
 
     from openenv.core.containers.runtime import LocalDockerProvider
 
-    provider = LocalDockerProvider()
-    base_url = provider.start_container(ENV_IMAGE)
-
     try:
-        provider.wait_for_ready(base_url, timeout_s=DOCKER_READY_TIMEOUT)
-    except TimeoutError as exc:
-        provider.stop_container()
-        raise RuntimeError(
-            f"Container for image '{ENV_IMAGE}' did not become ready within {DOCKER_READY_TIMEOUT}s. "
-            "Set ENV_BASE_URL to a running server (e.g. http://localhost:8000), "
-            "or rebuild and test the image locally."
-        ) from exc
+        provider = LocalDockerProvider()
+        base_url = provider.start_container(ENV_IMAGE)
 
-    env = DdiEnv(base_url=base_url, provider=provider)
-    await env.connect()
-    return env
+        try:
+            provider.wait_for_ready(base_url, timeout_s=DOCKER_READY_TIMEOUT)
+        except TimeoutError as exc:
+            provider.stop_container()
+            raise RuntimeError(
+                f"Container for image '{ENV_IMAGE}' did not become ready within {DOCKER_READY_TIMEOUT}s. "
+                "Set ENV_BASE_URL to a running server (e.g. http://localhost:8000), "
+                "or rebuild and test the image locally."
+            ) from exc
+
+        env = DdiEnv(base_url=base_url, provider=provider)
+        await env.connect()
+        return env
+    except Exception:
+        # Final local fallback for development environments without a live server/docker daemon.
+        return LocalDdiEnvAdapter()
 
 
 async def run_baseline() -> None:
     rewards: List[float] = []
-    history: List[str] = []
+    episode_scores: List[float] = []
     steps_taken = 0
     success = False
     env = None
@@ -420,55 +516,110 @@ async def run_baseline() -> None:
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME or "unknown")
 
     try:
-        if not API_KEY or not MODEL_NAME:
-            return
+        client: OpenAI | None = None
+        if API_KEY and MODEL_NAME:
+            client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
         env = await create_env()
 
-        reset_result = await maybe_await(env.reset())
-        observation = reset_result.observation
-        done = bool(reset_result.done)
-        step_limit = min(observation.step_budget or MAX_STEPS, MAX_STEPS)
-
-        for step in range(1, step_limit + 1):
-            if done:
-                break
-
+        for _episode in range(max(1, TASK_EPISODES)):
             try:
-                payload = await asyncio.to_thread(call_model, client, observation, history)
-                payload = apply_action_guardrails(payload, observation)
+                reset_result = await maybe_await(env.reset())
             except Exception:
-                payload = heuristic_action(observation)
+                try:
+                    await maybe_await(env.close())
+                except Exception:
+                    pass
+                env = LocalDdiEnvAdapter()
+                reset_result = await maybe_await(env.reset())
 
-            action = DdiAction(**payload)
-            result = await maybe_await(env.step(action))
-            observation = result.observation
+            observation = reset_result.observation
+            done = bool(reset_result.done)
+            step_limit = min(observation.step_budget or MAX_STEPS, MAX_STEPS)
+            history: List[str] = []
+            local_decided_interactions: set[str] = set()
+            local_suggested_regimens: set[str] = set()
 
-            reward = float(result.reward or 0.0)
-            done = bool(result.done)
-            error = last_action_error(observation)
+            for _step in range(1, step_limit + 1):
+                if done:
+                    break
 
-            rewards.append(reward)
-            steps_taken = step
+                try:
+                    if client is None or not MODEL_NAME:
+                        payload = heuristic_action(
+                            observation,
+                            decided_interactions=local_decided_interactions,
+                            suggested_regimens=local_suggested_regimens,
+                        )
+                    else:
+                        payload = await asyncio.to_thread(call_model, client, observation, history)
+                        payload = apply_action_guardrails(
+                            payload,
+                            observation,
+                            decided_interactions=local_decided_interactions,
+                            suggested_regimens=local_suggested_regimens,
+                        )
+                except Exception:
+                    payload = heuristic_action(
+                        observation,
+                        decided_interactions=local_decided_interactions,
+                        suggested_regimens=local_suggested_regimens,
+                    )
 
-            log_step(
-                step=step,
-                action=action_to_str(action),
-                reward=reward,
-                done=done,
-                error=error,
-            )
+                action = DdiAction(**payload)
+                if action.action_type in {"flag_interaction", "monitor", "ignore"} and action.interaction_id:
+                    local_decided_interactions.add(action.interaction_id)
+                if action.action_type == "suggest_alternative" and action.suggested_regimen_id:
+                    local_suggested_regimens.add(action.suggested_regimen_id)
 
-            history.append(
-                f"step={step} action={action.action_type} interaction={action.interaction_id} "
-                f"regimen={action.suggested_regimen_id} reward={reward:.2f}"
-            )
+                result = await maybe_await(env.step(action))
+                observation = result.observation
 
-            if done:
-                final_score = observation.final_score if observation.final_score is not None else 0.0
-                success = final_score >= SUCCESS_SCORE_THRESHOLD
-                break
+                reward = float(result.reward or 0.0)
+                done = bool(result.done)
+                error = last_action_error(observation)
+
+                rewards.append(reward)
+                steps_taken += 1
+
+                log_step(
+                    step=steps_taken,
+                    action=action_to_str(action),
+                    reward=reward,
+                    done=done,
+                    error=error,
+                )
+
+                history.append(
+                    f"step={steps_taken} action={action.action_type} interaction={action.interaction_id} "
+                    f"regimen={action.suggested_regimen_id} reward={reward:.2f}"
+                )
+
+            if not done:
+                # Force episode scoring when a custom MAX_STEPS truncates the policy loop.
+                finish_action = DdiAction(action_type="finish", rationale="max-step fallback")
+                result = await maybe_await(env.step(finish_action))
+                observation = result.observation
+                reward = float(result.reward or 0.0)
+                done = bool(result.done)
+                error = last_action_error(observation)
+
+                rewards.append(reward)
+                steps_taken += 1
+                log_step(
+                    step=steps_taken,
+                    action=action_to_str(finish_action),
+                    reward=reward,
+                    done=done,
+                    error=error,
+                )
+
+            if observation.final_score is not None:
+                episode_scores.append(float(observation.final_score))
+
+        if episode_scores:
+            mean_score = sum(episode_scores) / len(episode_scores)
+            success = mean_score >= SUCCESS_SCORE_THRESHOLD
     except Exception:
         success = False
     finally:

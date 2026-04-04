@@ -287,8 +287,21 @@ class DdiEnvironment(Environment):
 
         elif action_type == "finish":
             done = True
-            reward += 0.15
-            self._decision_log.append("Agent requested episode finish")
+            remaining_critical = self._remaining_critical()
+            if self._task_level == "hard":
+                required = set(self._patient_case.get("required_regimens", []))
+                missing_required = len(required - self._suggested_regimens)
+            else:
+                missing_required = 0
+
+            if remaining_critical > 0 or missing_required > 0:
+                reward -= 0.2 + 0.15 * remaining_critical + 0.1 * missing_required
+                self._decision_log.append(
+                    "Agent requested premature finish before completing objectives"
+                )
+            else:
+                reward += 0.15
+                self._decision_log.append("Agent requested episode finish")
 
         else:
             reward -= 0.2

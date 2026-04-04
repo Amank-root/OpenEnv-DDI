@@ -63,6 +63,10 @@ def score_interaction_decisions(
         total_possible += weight
 
         if decision is None:
+            if expected == "flag_interaction":
+                score -= 0.6 * weight
+            else:
+                score -= 0.2 * weight
             continue
 
         if decision == expected:

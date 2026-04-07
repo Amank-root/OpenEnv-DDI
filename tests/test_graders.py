@@ -69,6 +69,32 @@ def test_three_tasks_have_registered_graders() -> None:
     assert set(TASK_GRADERS.keys()) == {"easy", "medium", "hard"}
 
 
+def test_task_scores_are_strictly_within_open_interval() -> None:
+    easy_case = TASK_CASES["easy"][0]
+
+    perfect_easy = grade_easy(
+        interactions=easy_case["interactions"],
+        decisions={
+            "INT-E1": "flag_interaction",
+            "INT-E2": "flag_interaction",
+            "INT-E3": "monitor",
+        },
+        patient=easy_case,
+    )
+    worst_easy = grade_easy(
+        interactions=easy_case["interactions"],
+        decisions={
+            "INT-E1": "ignore",
+            "INT-E2": "ignore",
+            "INT-E3": "flag_interaction",
+        },
+        patient=easy_case,
+    )
+
+    assert 0.0 < worst_easy < 1.0
+    assert 0.0 < perfect_easy < 1.0
+
+
 def test_grade_determinism() -> None:
     hard_case = TASK_CASES["hard"][0]
     decisions = {

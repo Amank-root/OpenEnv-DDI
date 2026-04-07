@@ -55,6 +55,12 @@ TEMPERATURE = 0.0
 MAX_TOKENS = 3500
 JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
+# Keep displayed score strictly in (0, 1) after 3-decimal formatting.
+LOG_SCORE_MIN = 0.001
+LOG_SCORE_MAX = 0.999
+LOG_REWARD_MIN = 0.0
+LOG_REWARD_MAX = 1.0
+
 
 SYSTEM_PROMPT = (
     "You are a clinical medication safety triage assistant. "
@@ -105,6 +111,14 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
         f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
         flush=True,
     )
+
+
+def clamp_log_score(score: float) -> float:
+    return min(LOG_SCORE_MAX, max(LOG_SCORE_MIN, score))
+
+
+def clamp_log_reward(reward: float) -> float:
+    return min(LOG_REWARD_MAX, max(LOG_REWARD_MIN, reward))
 
 
 def action_to_str(action: DdiAction) -> str:
@@ -631,16 +645,17 @@ async def run_baseline() -> None:
                 observation = result.observation
 
                 reward = float(result.reward or 0.0)
+                logged_reward = clamp_log_reward(reward)
                 done = bool(result.done)
                 error = last_action_error(observation)
 
-                episode_rewards.append(reward)
+                episode_rewards.append(logged_reward)
                 episode_steps += 1
 
                 log_step(
                     step=episode_steps,
                     action=action_to_str(action),
-                    reward=reward,
+                    reward=logged_reward,
                     done=done,
                     error=error,
                 )
@@ -658,22 +673,23 @@ async def run_baseline() -> None:
                 result = await maybe_await(env.step(finish_action))
                 observation = result.observation
                 reward = float(result.reward or 0.0)
+                logged_reward = clamp_log_reward(reward)
                 done = bool(result.done)
                 error = last_action_error(observation)
 
-                episode_rewards.append(reward)
+                episode_rewards.append(logged_reward)
                 episode_steps += 1
                 log_step(
                     step=episode_steps,
                     action=action_to_str(finish_action),
-                    reward=reward,
+                    reward=logged_reward,
                     done=done,
                     error=error,
                 )
 
             if observation.final_score is not None:
                 episode_score = float(observation.final_score)
-            episode_score = max(0.0, min(1.0, episode_score))
+            episode_score = clamp_log_score(episode_score)
             episode_success = episode_score >= SUCCESS_SCORE_THRESHOLD
 
             log_end(
@@ -684,7 +700,7 @@ async def run_baseline() -> None:
             )
     except Exception:
         log_start(task=TASK_NAME, env=BENCHMARK, model=model_name)
-        log_end(success=False, steps=0, score=0.0, rewards=[])
+        log_end(success=False, steps=0, score=LOG_SCORE_MIN, rewards=[])
     finally:
         if env is not None:
             try:

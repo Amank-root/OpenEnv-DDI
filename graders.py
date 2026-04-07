@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from typing import Callable, Dict, Iterable, Set
 
+
+# Scores must be strictly within (0, 1) for submission evaluation.
+SCORE_EPSILON = 1e-3
+
+
+def _strict_unit_interval(value: float) -> float:
+    return min(1.0 - SCORE_EPSILON, max(SCORE_EPSILON, value))
+
 try:
     from .ddi_data import INTERACTION_RECOMMENDATIONS, SEVERITY_WEIGHTS
 except ImportError:
@@ -87,24 +95,24 @@ def score_interaction_decisions(
             score -= 0.25 * weight
 
     if total_possible <= 0:
-        return 0.0
+        return SCORE_EPSILON
 
     normalized = (score / total_possible + 1.0) / 2.0
-    return max(0.0, min(1.0, normalized))
+    return _strict_unit_interval(normalized)
 
 
 def score_regimen_suggestions(required_regimens: Iterable[str], suggested: Set[str]) -> float:
     """Score suggested alternatives against required regimen IDs."""
     req = list(required_regimens)
     if not req:
-        return 1.0
+        return 1.0 - SCORE_EPSILON
 
     matched = sum(1 for regimen_id in req if regimen_id in suggested)
     missed = len(req) - matched
     overcalls = max(0, len(suggested) - matched)
 
     raw = (matched - 0.5 * missed - 0.2 * overcalls) / len(req)
-    return max(0.0, min(1.0, raw))
+    return _strict_unit_interval(raw)
 
 
 def grade_easy(*, interactions: Iterable[Dict], decisions: Dict[str, str], patient: Dict) -> float:
@@ -141,7 +149,7 @@ def grade_hard(
     )
     regimen_score = score_regimen_suggestions(required_regimens, suggested_regimens)
     combined = 0.7 * interaction_score + 0.3 * regimen_score
-    return max(0.0, min(1.0, combined))
+    return _strict_unit_interval(combined)
 
 
 # Explicit task->grader registry used by environment and validation checks.

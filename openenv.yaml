@@ -1,5 +1,5 @@
 spec_version: 1
-name: ddi
+name: ddi-env
 type: space
 runtime: fastapi
 app: server.app:app

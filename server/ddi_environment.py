@@ -19,9 +19,7 @@ try:
     from ..ddi_data import get_task_cases
     from ..graders import (
         expected_decision,
-        grade_easy,
-        grade_hard,
-        grade_medium,
+        grade_task,
         interaction_criticality,
     )
     from ..models import DdiAction, DdiCandidate, DdiObservation, SubstitutionOption
@@ -30,9 +28,7 @@ except ImportError:
     from ddi_data import get_task_cases
     from graders import (
         expected_decision,
-        grade_easy,
-        grade_hard,
-        grade_medium,
+        grade_task,
         interaction_criticality,
     )
     from models import DdiAction, DdiCandidate, DdiObservation, SubstitutionOption
@@ -161,25 +157,18 @@ class DdiEnvironment(Environment):
 
     def _final_score(self) -> float:
         interactions = self._patient_case["interactions"]
-        if self._task_level == "easy":
-            return grade_easy(
-                interactions=interactions,
-                decisions=self._decisions,
-                patient=self._patient_case,
+        grade_kwargs = {
+            "interactions": interactions,
+            "decisions": self._decisions,
+            "patient": self._patient_case,
+        }
+        if self._task_level == "hard":
+            grade_kwargs["required_regimens"] = self._patient_case.get(
+                "required_regimens", []
             )
-        if self._task_level == "medium":
-            return grade_medium(
-                interactions=interactions,
-                decisions=self._decisions,
-                patient=self._patient_case,
-            )
-        return grade_hard(
-            interactions=interactions,
-            decisions=self._decisions,
-            patient=self._patient_case,
-            required_regimens=self._patient_case.get("required_regimens", []),
-            suggested_regimens=self._suggested_regimens,
-        )
+            grade_kwargs["suggested_regimens"] = self._suggested_regimens
+
+        return grade_task(self._task_level, **grade_kwargs)
 
     def _should_auto_finish(self) -> bool:
         all_interactions_decided = len(self._decisions) >= len(
@@ -228,6 +217,7 @@ class DdiEnvironment(Environment):
             metadata={
                 "decisions": self._decisions,
                 "suggested_regimens": sorted(self._suggested_regimens),
+                "grader_name": self._task_config.grader_name,
                 "case_split": self._case_split,
                 "task_sampling": self._task_sampling,
                 "template_family": self._patient_case.get(

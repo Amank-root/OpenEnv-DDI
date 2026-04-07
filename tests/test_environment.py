@@ -47,6 +47,11 @@ def test_validation_split_selects_validation_cases() -> None:
         assert obs.metadata["case_split"] == "validation"
         assert obs.metadata["case_split_assignment"] == "validation"
         assert str(obs.metadata["template_family"]).startswith("validation::")
+        assert obs.metadata["grader_name"] in {
+            "grade_easy",
+            "grade_medium",
+            "grade_hard",
+        }
 
 
 def test_final_score_bounded() -> None:

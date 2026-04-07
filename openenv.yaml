@@ -5,3 +5,14 @@ runtime: fastapi
 app: server.app:app
 port: 8000
 
+tasks:
+  - name: easy
+    objective: Flag severe DDIs in a short medication list.
+    grader: grade_easy
+  - name: medium
+    objective: Risk-aware triage using age and renal/hepatic context.
+    grader: grade_medium
+  - name: hard
+    objective: Triage interactions and suggest safer regimen substitutions.
+    grader: grade_hard
+

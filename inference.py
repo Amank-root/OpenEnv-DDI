@@ -553,24 +553,23 @@ async def create_env() -> DdiEnv | LocalDdiEnvAdapter:
 
 
 async def run_baseline() -> None:
-    rewards: List[float] = []
-    episode_scores: List[float] = []
-    steps_taken = 0
-    success = False
-    score = 0.0
     env = None
     model_name = MODEL_NAME or "unknown"
-    start_logged = False
 
     try:
         api_base_url, api_key, model_name = require_proxy_config()
-        log_start(task=TASK_NAME, env=BENCHMARK, model=model_name)
-        start_logged = True
         client = OpenAI(base_url=api_base_url, api_key=api_key)
 
         env = await create_env()
 
         for _episode in range(max(1, TASK_EPISODES)):
+            episode_rewards: List[float] = []
+            episode_steps = 0
+            episode_score = 0.0
+            episode_success = False
+            episode_task = TASK_NAME
+            start_logged = False
+
             try:
                 reset_result = await maybe_await(env.reset())
             except Exception:
@@ -582,6 +581,9 @@ async def run_baseline() -> None:
                 reset_result = await maybe_await(env.reset())
 
             observation = reset_result.observation
+            episode_task = observation.task_level
+            log_start(task=episode_task, env=BENCHMARK, model=model_name)
+            start_logged = True
             done = bool(reset_result.done)
             step_limit = min(observation.step_budget or MAX_STEPS, MAX_STEPS)
             history: List[str] = []
@@ -632,11 +634,11 @@ async def run_baseline() -> None:
                 done = bool(result.done)
                 error = last_action_error(observation)
 
-                rewards.append(reward)
-                steps_taken += 1
+                episode_rewards.append(reward)
+                episode_steps += 1
 
                 log_step(
-                    step=steps_taken,
+                    step=episode_steps,
                     action=action_to_str(action),
                     reward=reward,
                     done=done,
@@ -644,7 +646,7 @@ async def run_baseline() -> None:
                 )
 
                 history.append(
-                    f"step={steps_taken} action={action.action_type} interaction={action.interaction_id} "
+                    f"step={episode_steps} action={action.action_type} interaction={action.interaction_id} "
                     f"regimen={action.suggested_regimen_id} reward={reward:.2f}"
                 )
 
@@ -659,10 +661,10 @@ async def run_baseline() -> None:
                 done = bool(result.done)
                 error = last_action_error(observation)
 
-                rewards.append(reward)
-                steps_taken += 1
+                episode_rewards.append(reward)
+                episode_steps += 1
                 log_step(
-                    step=steps_taken,
+                    step=episode_steps,
                     action=action_to_str(finish_action),
                     reward=reward,
                     done=done,
@@ -670,24 +672,25 @@ async def run_baseline() -> None:
                 )
 
             if observation.final_score is not None:
-                episode_scores.append(float(observation.final_score))
+                episode_score = float(observation.final_score)
+            episode_score = max(0.0, min(1.0, episode_score))
+            episode_success = episode_score >= SUCCESS_SCORE_THRESHOLD
 
-        if episode_scores:
-            score = max(0.0, min(1.0, sum(episode_scores) / len(episode_scores)))
-            success = score >= SUCCESS_SCORE_THRESHOLD
+            log_end(
+                success=episode_success,
+                steps=episode_steps,
+                score=episode_score,
+                rewards=episode_rewards,
+            )
     except Exception:
-        if not start_logged:
-            log_start(task=TASK_NAME, env=BENCHMARK, model=model_name)
-        success = False
-        score = 0.0
+        log_start(task=TASK_NAME, env=BENCHMARK, model=model_name)
+        log_end(success=False, steps=0, score=0.0, rewards=[])
     finally:
         if env is not None:
             try:
                 await maybe_await(env.close())
             except Exception:
                 pass
-
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, Set
+from typing import Callable, Dict, Iterable, Set
 
 try:
     from .ddi_data import INTERACTION_RECOMMENDATIONS, SEVERITY_WEIGHTS
@@ -142,3 +142,19 @@ def grade_hard(
     regimen_score = score_regimen_suggestions(required_regimens, suggested_regimens)
     combined = 0.7 * interaction_score + 0.3 * regimen_score
     return max(0.0, min(1.0, combined))
+
+
+# Explicit task->grader registry used by environment and validation checks.
+TASK_GRADERS: Dict[str, Callable[..., float]] = {
+    "easy": grade_easy,
+    "medium": grade_medium,
+    "hard": grade_hard,
+}
+
+
+def grade_task(task_level: str, **kwargs) -> float:
+    """Route scoring to the registered grader for a task level."""
+    grader = TASK_GRADERS.get(task_level)
+    if grader is None:
+        raise ValueError(f"No grader registered for task level: {task_level}")
+    return grader(**kwargs)

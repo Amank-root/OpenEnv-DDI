@@ -14,6 +14,7 @@ try:
         get_task_cases,
     )
     from graders import (  # type: ignore[import-not-found]
+        TASK_GRADERS,
         expected_decision,
         grade_easy,
         grade_hard,
@@ -27,6 +28,7 @@ except ImportError:
         get_task_cases,
     )
     from ddi.graders import (  # type: ignore[import-not-found]
+        TASK_GRADERS,
         expected_decision,
         grade_easy,
         grade_hard,
@@ -61,6 +63,10 @@ def test_grade_ranges() -> None:
     assert 0.0 <= easy_score <= 1.0
     assert 0.0 <= medium_score <= 1.0
     assert 0.0 <= hard_score <= 1.0
+
+
+def test_three_tasks_have_registered_graders() -> None:
+    assert set(TASK_GRADERS.keys()) == {"easy", "medium", "hard"}
 
 
 def test_grade_determinism() -> None:

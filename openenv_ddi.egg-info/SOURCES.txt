@@ -4,7 +4,6 @@ client.py
 ddi_data.py
 graders.py
 inference.py
-inference.sample.py
 models.py
 pyproject.toml
 task_registry.py
@@ -13,7 +12,6 @@ task_registry.py
 ./ddi_data.py
 ./graders.py
 ./inference.py
-./inference.sample.py
 ./models.py
 ./task_registry.py
 openenv_ddi.egg-info/PKG-INFO

@@ -45,3 +45,8 @@ server = "ddi.server.app:main"
 include-package-data = true
 packages = ["ddi", "ddi.server", "ddi.task_cases"]
 package-dir = { "ddi" = ".", "ddi.server" = "server", "ddi.task_cases" = "task_cases" }
+
+[tool.uv.workspace]
+members = [
+    "demo",
+]

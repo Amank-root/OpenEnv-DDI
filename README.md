@@ -33,13 +33,34 @@ Polypharmacy in elderly populations is associated with preventable adverse event
 
 ## Task Suite
 
-The environment cycles task levels on each `reset()` in order: `easy -> medium -> hard`.
+By default, the environment cycles task levels on each `reset()` in order: `easy -> medium -> hard`.
+To reduce overfitting to fixed task order during training, you can switch to mixed sampling while
+keeping the initial curriculum warmup cycle.
 
 1. Easy: severe DDI detection in a 5-drug list.
 2. Medium: risk-aware triage using severity plus patient factors (age, renal function).
 3. Hard: triage plus constrained alternative regimen suggestions to reduce risk while preserving treatment intent.
 
 Each episode corresponds to one patient case.
+
+## Dataset Splits
+
+Cases are organized into strict template-family splits to prevent train/validation leakage.
+Each case can declare:
+
+- `template_family`: stable family key used for leakage checks
+- `split`: `train` or `validation`
+
+Runtime split selection is controlled by `DDI_CASE_SPLIT`:
+
+- `all` (default): union of train + validation
+- `train`: train-only cases
+- `validation`: validation-only cases
+
+Task ordering is controlled by `DDI_TASK_SAMPLING`:
+
+- `curriculum` (default): fixed `easy -> medium -> hard`
+- `mixed`: one curriculum warmup, then deterministic mixed-difficulty pattern
 
 ## Observation Space
 
@@ -155,6 +176,8 @@ export API_KEY=<your-token>
 # Optional runtime controls
 export TASK_EPISODES=3
 export MAX_STEPS=16
+export DDI_CASE_SPLIT=all          # all | train | validation
+export DDI_TASK_SAMPLING=curriculum # curriculum | mixed
 ```
 
 Run baseline:

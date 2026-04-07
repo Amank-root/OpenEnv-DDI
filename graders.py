@@ -21,9 +21,12 @@ def expected_decision(interaction: Dict, patient: Dict, task_level: str) -> str:
     if task_level in {"medium", "hard"}:
         age = patient["age"]
         egfr = patient["labs"].get("egfr", 90.0)
-        if severity == "moderate" and (age >= 80 or egfr < 45):
+        alt = patient["labs"].get("alt", 30.0)
+        ast = patient["labs"].get("ast", 30.0)
+        hepatic_stress = alt >= 120 or ast >= 120
+        if severity == "moderate" and (age >= 80 or egfr < 45 or hepatic_stress):
             return "flag_interaction"
-        if severity == "minor" and (age >= 85 or egfr < 30):
+        if severity == "minor" and (age >= 85 or egfr < 30 or alt >= 150):
             return "monitor"
         return default_decision
 
@@ -38,9 +41,12 @@ def interaction_criticality(interaction: Dict, patient: Dict, task_level: str) -
 
     age = patient["age"]
     egfr = patient["labs"].get("egfr", 90.0)
+    alt = patient["labs"].get("alt", 30.0)
+    ast = patient["labs"].get("ast", 30.0)
     age_factor = 0.2 if age >= 80 else 0.0
     renal_factor = 0.25 if egfr < 45 else 0.0
-    return min(1.2, base + age_factor + renal_factor)
+    hepatic_factor = 0.2 if (alt >= 120 or ast >= 120) else 0.0
+    return min(1.2, base + age_factor + renal_factor + hepatic_factor)
 
 
 def score_interaction_decisions(

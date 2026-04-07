@@ -33,11 +33,9 @@ def normalize_base_url(base_url: str) -> str:
     return cleaned
 
 
-API_BASE_URL = normalize_base_url(
-    os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-)
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME")
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"  # Default to Hugging Face API base URL
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
+MODEL_NAME = os.getenv("MODEL_NAME") or "openai/gpt-oss-120b"  # Default to a large open-source model on Hugging Face
 ENV_BASE_URL = os.getenv("ENV_BASE_URL")
 # Align with sample naming while still accepting common aliases.
 IMAGE_NAME = (
@@ -65,6 +63,23 @@ SYSTEM_PROMPT = (
     "Valid action_type values are flag_interaction, monitor, suggest_alternative, ignore, finish. "
     "If action_type does not require a field, set it to null."
 )
+
+
+def require_proxy_config() -> tuple[str, str, str]:
+    """Require the injected LiteLLM proxy configuration for submission runs."""
+    missing = []
+    if not API_BASE_URL:
+        missing.append("API_BASE_URL")
+    if not API_KEY:
+        missing.append("API_KEY")
+    if not MODEL_NAME:
+        missing.append("MODEL_NAME")
+
+    if missing:
+        joined = ", ".join(missing)
+        raise RuntimeError(f"Missing required environment variable(s): {joined}")
+
+    return normalize_base_url(API_BASE_URL), API_KEY, MODEL_NAME
 
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -433,10 +448,15 @@ def parse_action(content: str, observation: DdiObservation) -> Dict:
         return heuristic_action(observation)
 
 
-def call_model(client: OpenAI, observation: DdiObservation, history: List[str]) -> Dict:
+def call_model(
+    client: OpenAI,
+    model_name: str,
+    observation: DdiObservation,
+    history: List[str],
+) -> Dict:
     user_prompt = observation_to_prompt(observation, history)
     completion = client.chat.completions.create(
-        model=MODEL_NAME,
+        model=model_name,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
@@ -539,13 +559,14 @@ async def run_baseline() -> None:
     success = False
     score = 0.0
     env = None
-
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME or "unknown")
+    model_name = MODEL_NAME or "unknown"
+    start_logged = False
 
     try:
-        client: OpenAI | None = None
-        if API_KEY and MODEL_NAME:
-            client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+        api_base_url, api_key, model_name = require_proxy_config()
+        log_start(task=TASK_NAME, env=BENCHMARK, model=model_name)
+        start_logged = True
+        client = OpenAI(base_url=api_base_url, api_key=api_key)
 
         env = await create_env()
 
@@ -571,24 +592,21 @@ async def run_baseline() -> None:
                 if done:
                     break
 
-                try:
-                    if client is None or not MODEL_NAME:
-                        payload = heuristic_action(
-                            observation,
-                            decided_interactions=local_decided_interactions,
-                            suggested_regimens=local_suggested_regimens,
-                        )
-                    else:
-                        payload = await asyncio.to_thread(
-                            call_model, client, observation, history
-                        )
-                        payload = apply_action_guardrails(
-                            payload,
-                            observation,
-                            decided_interactions=local_decided_interactions,
-                            suggested_regimens=local_suggested_regimens,
-                        )
-                except Exception:
+                payload = await asyncio.to_thread(
+                    call_model,
+                    client,
+                    model_name,
+                    observation,
+                    history,
+                )
+                payload = apply_action_guardrails(
+                    payload,
+                    observation,
+                    decided_interactions=local_decided_interactions,
+                    suggested_regimens=local_suggested_regimens,
+                )
+
+                if not payload:
                     payload = heuristic_action(
                         observation,
                         decided_interactions=local_decided_interactions,
@@ -658,6 +676,8 @@ async def run_baseline() -> None:
             score = max(0.0, min(1.0, sum(episode_scores) / len(episode_scores)))
             success = score >= SUCCESS_SCORE_THRESHOLD
     except Exception:
+        if not start_logged:
+            log_start(task=TASK_NAME, env=BENCHMARK, model=model_name)
         success = False
         score = 0.0
     finally:

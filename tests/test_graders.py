@@ -8,7 +8,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 try:
-    from ddi_data import TASK_CASES  # type: ignore[import-not-found]
+    from ddi_data import (  # type: ignore[import-not-found]
+        TASK_CASES,
+        case_template_family,
+        get_task_cases,
+    )
     from graders import (  # type: ignore[import-not-found]
         expected_decision,
         grade_easy,
@@ -17,7 +21,11 @@ try:
         score_regimen_suggestions,
     )
 except ImportError:
-    from ddi.ddi_data import TASK_CASES  # type: ignore[import-not-found]
+    from ddi.ddi_data import (  # type: ignore[import-not-found]
+        TASK_CASES,
+        case_template_family,
+        get_task_cases,
+    )
     from ddi.graders import (  # type: ignore[import-not-found]
         expected_decision,
         grade_easy,
@@ -103,9 +111,25 @@ def test_missing_decisions_are_penalized() -> None:
 
 
 def test_case_pool_size_per_level() -> None:
-    assert len(TASK_CASES["easy"]) >= 6
-    assert len(TASK_CASES["medium"]) >= 6
-    assert len(TASK_CASES["hard"]) >= 6
+    assert len(TASK_CASES["easy"]) >= 8
+    assert len(TASK_CASES["medium"]) >= 8
+    assert len(TASK_CASES["hard"]) >= 8
+
+
+def test_train_validation_template_families_do_not_overlap() -> None:
+    train_cases = get_task_cases("train")
+    validation_cases = get_task_cases("validation")
+
+    for level in ("easy", "medium", "hard"):
+        train_families = {
+            case_template_family(case) for case in train_cases[level]
+        }
+        validation_families = {
+            case_template_family(case) for case in validation_cases[level]
+        }
+
+        assert len(validation_families) > 0
+        assert train_families.isdisjoint(validation_families)
 
 
 def test_moderate_threshold_behavior_medium() -> None:
@@ -134,6 +158,19 @@ def test_minor_escalation_in_high_risk_medium() -> None:
 
     assert expected_decision(interaction, patient_lower_risk, "medium") == "ignore"
     assert expected_decision(interaction, patient_higher_risk, "medium") == "monitor"
+
+
+def test_moderate_liver_trigger_behavior_medium() -> None:
+    interaction = {"severity": "moderate"}
+
+    patient_baseline = {"age": 77, "labs": {"egfr": 56.0, "alt": 90.0, "ast": 85.0}}
+    patient_liver_trigger = {
+        "age": 77,
+        "labs": {"egfr": 56.0, "alt": 125.0, "ast": 122.0},
+    }
+
+    assert expected_decision(interaction, patient_baseline, "medium") == "monitor"
+    assert expected_decision(interaction, patient_liver_trigger, "medium") == "flag_interaction"
 
 
 def test_over_suggestion_penalized() -> None:

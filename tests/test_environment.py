@@ -26,6 +26,29 @@ def test_task_cycle_order() -> None:
     assert levels == ["easy", "medium", "hard"]
 
 
+def test_mixed_task_sampling_keeps_curriculum_then_mixes() -> None:
+    env = DdiEnvironment(task_sampling="mixed")
+
+    levels = [env.reset().task_level for _ in range(9)]
+
+    assert levels[:3] == ["easy", "medium", "hard"]
+    assert set(levels[3:]) == {"easy", "medium", "hard"}
+    assert levels[3:] != ["easy", "medium", "hard", "easy", "medium", "hard"]
+
+
+def test_validation_split_selects_validation_cases() -> None:
+    env = DdiEnvironment(case_split="validation", task_sampling="curriculum")
+
+    obs_easy = env.reset()
+    obs_medium = env.reset()
+    obs_hard = env.reset()
+
+    for obs in (obs_easy, obs_medium, obs_hard):
+        assert obs.metadata["case_split"] == "validation"
+        assert obs.metadata["case_split_assignment"] == "validation"
+        assert str(obs.metadata["template_family"]).startswith("validation::")
+
+
 def test_final_score_bounded() -> None:
     env = DdiEnvironment()
     env.reset()

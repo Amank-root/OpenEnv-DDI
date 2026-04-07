@@ -9,13 +9,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import os
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
 try:
-    from ..ddi_data import TASK_CASES
+    from ..ddi_data import get_task_cases
     from ..graders import (
         expected_decision,
         grade_easy,
@@ -26,7 +27,7 @@ try:
     from ..models import DdiAction, DdiCandidate, DdiObservation, SubstitutionOption
     from ..task_registry import TASK_CONFIGS, TASK_ORDER
 except ImportError:
-    from ddi_data import TASK_CASES
+    from ddi_data import get_task_cases
     from graders import (
         expected_decision,
         grade_easy,
@@ -62,12 +63,19 @@ class DdiEnvironment(Environment):
     # getting their own environment instance (when using factory mode in app.py).
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
-    def __init__(self):
+    def __init__(self, case_split: str | None = None, task_sampling: str | None = None):
         """Initialize deterministic episode state."""
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._reset_count = 0
         self._task_cursor = 0
         self._case_cursor = {"easy": 0, "medium": 0, "hard": 0}
+
+        self._case_split = (case_split or os.getenv("DDI_CASE_SPLIT", "all")).lower()
+        self._task_sampling = (
+            task_sampling or os.getenv("DDI_TASK_SAMPLING", "curriculum")
+        ).lower()
+        self._cases_by_level = get_task_cases(self._case_split)  # train|validation|all
+        self._mixed_task_pattern = ["easy", "hard", "medium", "hard", "easy", "medium"]
 
         self._task_level = "easy"
         self._task_config = TASK_CONFIGS[self._task_level]
@@ -76,12 +84,31 @@ class DdiEnvironment(Environment):
         self._suggested_regimens = set()
         self._decision_log = []
 
-    def _select_case(self) -> None:
-        self._task_level = TASK_ORDER[self._task_cursor % len(TASK_ORDER)]
+    def _next_task_level(self) -> str:
+        if self._task_sampling == "mixed":
+            # Keep one curriculum warmup cycle, then switch to a deterministic mixed pattern.
+            if self._task_cursor < len(TASK_ORDER):
+                task_level = TASK_ORDER[self._task_cursor]
+            else:
+                mixed_idx = (self._task_cursor - len(TASK_ORDER)) % len(
+                    self._mixed_task_pattern
+                )
+                task_level = self._mixed_task_pattern[mixed_idx]
+        else:
+            task_level = TASK_ORDER[self._task_cursor % len(TASK_ORDER)]
+
         self._task_cursor += 1
+        return task_level
+
+    def _select_case(self) -> None:
+        self._task_level = self._next_task_level()
         self._task_config = TASK_CONFIGS[self._task_level]
 
-        cases = TASK_CASES[self._task_level]
+        cases = self._cases_by_level[self._task_level]
+        if not cases:
+            raise ValueError(
+                f"No cases found for split={self._case_split}, level={self._task_level}"
+            )
         case_idx = self._case_cursor[self._task_level] % len(cases)
         self._case_cursor[self._task_level] += 1
         self._patient_case = deepcopy(cases[case_idx])
@@ -201,6 +228,12 @@ class DdiEnvironment(Environment):
             metadata={
                 "decisions": self._decisions,
                 "suggested_regimens": sorted(self._suggested_regimens),
+                "case_split": self._case_split,
+                "task_sampling": self._task_sampling,
+                "template_family": self._patient_case.get(
+                    "template_family", f"legacy::{self._patient_case['case_id']}"
+                ),
+                "case_split_assignment": self._patient_case.get("split", "train"),
             },
         )
 

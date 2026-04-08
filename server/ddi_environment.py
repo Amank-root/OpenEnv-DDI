@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import os
+import random
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
@@ -48,6 +49,8 @@ PENALTY_OPTIONAL_LOW_IMPACT = 0.05
 HIGH_IMPACT_REGIMEN_DELTA = 0.5
 
 TERMINAL_SCORE_WEIGHT = 0.75
+RISK_DELTA_SHAPING_WEIGHT = 0.08
+MAX_ABS_RISK_DELTA = 1.0
 
 
 class DdiEnvironment(Environment):
@@ -72,6 +75,12 @@ class DdiEnvironment(Environment):
         ).lower()
         self._cases_by_level = get_task_cases(self._case_split)  # train|validation|all
         self._mixed_task_pattern = ["easy", "hard", "medium", "hard", "easy", "medium"]
+        self._task_shuffle_seed = int(os.getenv("DDI_TASK_SHUFFLE_SEED", "17"))
+        self._task_shuffle_window = max(
+            len(TASK_ORDER), int(os.getenv("DDI_TASK_SHUFFLE_WINDOW", "6"))
+        )
+        self._task_rng = random.Random(self._task_shuffle_seed)
+        self._task_shuffle_buffer: list[str] = []
 
         self._task_level = "easy"
         self._task_config = TASK_CONFIGS[self._task_level]
@@ -79,6 +88,18 @@ class DdiEnvironment(Environment):
         self._decisions = {}
         self._suggested_regimens = set()
         self._decision_log = []
+
+    def _refill_shuffled_task_buffer(self) -> None:
+        # Build a deterministic shuffled window that still covers all task levels.
+        repeats = (self._task_shuffle_window + len(TASK_ORDER) - 1) // len(TASK_ORDER)
+        window = (TASK_ORDER * repeats)[: self._task_shuffle_window]
+        self._task_rng.shuffle(window)
+        self._task_shuffle_buffer = window
+
+    def _scale_reward(self, delta: float) -> float:
+        if delta >= 0:
+            return delta * self._task_config.positive_reward_scale
+        return delta * self._task_config.penalty_reward_scale
 
     def _next_task_level(self) -> str:
         if self._task_sampling == "mixed":
@@ -90,6 +111,14 @@ class DdiEnvironment(Environment):
                     self._mixed_task_pattern
                 )
                 task_level = self._mixed_task_pattern[mixed_idx]
+        elif self._task_sampling in {"mixed_shuffled", "mixed_seeded"}:
+            # Keep one curriculum warmup cycle, then use seeded shuffled windows.
+            if self._task_cursor < len(TASK_ORDER):
+                task_level = TASK_ORDER[self._task_cursor]
+            else:
+                if not self._task_shuffle_buffer:
+                    self._refill_shuffled_task_buffer()
+                task_level = self._task_shuffle_buffer.pop(0)
         else:
             task_level = TASK_ORDER[self._task_cursor % len(TASK_ORDER)]
 
@@ -155,6 +184,37 @@ class DdiEnvironment(Environment):
 
         return max(0.0, round(base_risk - mitigated, 3))
 
+    def _remaining_required_regimens(self) -> list[str]:
+        required = set(self._patient_case.get("required_regimens", []))
+        return sorted(required - self._suggested_regimens)
+
+    def _remaining_high_impact_regimens(self) -> list[str]:
+        option_by_id = {
+            option["regimen_id"]: option
+            for option in self._patient_case.get("substitution_options", [])
+        }
+        remaining = []
+        for regimen_id, option in option_by_id.items():
+            if regimen_id in self._suggested_regimens:
+                continue
+            if option["expected_risk_delta"] >= HIGH_IMPACT_REGIMEN_DELTA:
+                remaining.append(regimen_id)
+        return sorted(remaining)
+
+    def _unresolved_interaction_ids(self) -> list[str]:
+        unresolved = []
+        for interaction in self._patient_case["interactions"]:
+            interaction_id = interaction["interaction_id"]
+            if interaction_id not in self._decisions:
+                unresolved.append(interaction_id)
+        return unresolved
+
+    def _risk_delta_bonus(self, previous_risk: float) -> float:
+        current_risk = self._risk_score()
+        delta = previous_risk - current_risk
+        bounded_delta = max(-MAX_ABS_RISK_DELTA, min(MAX_ABS_RISK_DELTA, delta))
+        return round(RISK_DELTA_SHAPING_WEIGHT * bounded_delta, 4)
+
     def _final_score(self) -> float:
         interactions = self._patient_case["interactions"]
         grade_kwargs = {
@@ -218,6 +278,10 @@ class DdiEnvironment(Environment):
                 "decisions": self._decisions,
                 "suggested_regimens": sorted(self._suggested_regimens),
                 "grader_name": self._task_config.grader_name,
+                "unresolved_interaction_ids": self._unresolved_interaction_ids(),
+                "remaining_required_regimens": self._remaining_required_regimens(),
+                "remaining_high_impact_regimens": self._remaining_high_impact_regimens(),
+                "can_finish": self._should_auto_finish(),
                 "case_split": self._case_split,
                 "task_sampling": self._task_sampling,
                 "template_family": self._patient_case.get(
@@ -346,24 +410,30 @@ class DdiEnvironment(Environment):
     def step(self, action: DdiAction) -> DdiObservation:  # type: ignore[override]
         """Execute one triage action and return shaped reward feedback."""
         self._state.step_count += 1
+        previous_risk = self._risk_score()
         reward = 0.0
         done = False
 
         action_type = action.action_type
 
         if action_type in {"flag_interaction", "monitor", "ignore"}:
-            reward += self._apply_triage_action(action)
+            reward += self._scale_reward(self._apply_triage_action(action))
 
         elif action_type == "suggest_alternative":
-            reward += self._apply_substitution_action(action)
+            reward += self._scale_reward(self._apply_substitution_action(action))
 
         elif action_type == "finish":
             finish_reward, done = self._apply_finish_action()
-            reward += finish_reward
+            reward += self._scale_reward(finish_reward)
 
         else:
-            reward -= 0.2
+            reward += self._scale_reward(-0.2)
             self._decision_log.append(f"Unsupported action type: {action_type}")
+
+        risk_bonus = self._scale_reward(self._risk_delta_bonus(previous_risk))
+        reward += risk_bonus
+        if risk_bonus != 0:
+            self._decision_log.append(f"Risk-delta shaping applied: {risk_bonus:+.3f}")
 
         if self._state.step_count >= self._task_config.step_budget:
             done = True
@@ -375,7 +445,8 @@ class DdiEnvironment(Environment):
 
         if done:
             final_score = self._final_score()
-            reward += TERMINAL_SCORE_WEIGHT * (final_score - 0.5)
+            terminal_adjustment = TERMINAL_SCORE_WEIGHT * (final_score - 0.5)
+            reward += self._scale_reward(terminal_adjustment)
             return self._build_observation(
                 done=True,
                 reward=round(reward, 4),

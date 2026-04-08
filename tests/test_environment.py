@@ -1,5 +1,6 @@
 """Tests for deterministic DDI environment behavior."""
 
+from collections import Counter
 from pathlib import Path
 import sys
 
@@ -36,6 +37,20 @@ def test_mixed_task_sampling_keeps_curriculum_then_mixes() -> None:
     assert levels[3:] != ["easy", "medium", "hard", "easy", "medium", "hard"]
 
 
+def test_mixed_seeded_sampling_is_reproducible() -> None:
+    env_a = DdiEnvironment(task_sampling="mixed_seeded")
+    env_b = DdiEnvironment(task_sampling="mixed_seeded")
+
+    levels_a = [env_a.reset().task_level for _ in range(15)]
+    levels_b = [env_b.reset().task_level for _ in range(15)]
+
+    assert levels_a == levels_b
+    assert levels_a[:3] == ["easy", "medium", "hard"]
+
+    shuffled_window = levels_a[3:9]
+    assert Counter(shuffled_window) == Counter({"easy": 2, "medium": 2, "hard": 2})
+
+
 def test_validation_split_selects_validation_cases() -> None:
     env = DdiEnvironment(case_split="validation", task_sampling="curriculum")
 
@@ -52,6 +67,22 @@ def test_validation_split_selects_validation_cases() -> None:
             "grade_medium",
             "grade_hard",
         }
+
+
+def test_observation_metadata_exposes_action_hints() -> None:
+    env = DdiEnvironment(task_sampling="curriculum")
+    obs_easy = env.reset()
+
+    unresolved_easy = obs_easy.metadata.get("unresolved_interaction_ids", [])
+    assert isinstance(unresolved_easy, list)
+    assert len(unresolved_easy) == len(obs_easy.ddi_candidates)
+    assert obs_easy.metadata.get("remaining_required_regimens") == []
+
+    env.reset()  # medium
+    obs_hard = env.reset()  # hard
+    remaining_required = obs_hard.metadata.get("remaining_required_regimens", [])
+    assert isinstance(remaining_required, list)
+    assert len(remaining_required) > 0
 
 
 def test_final_score_bounded() -> None:
@@ -190,6 +221,27 @@ def test_false_positive_flag_penalty_exceeds_correct_monitor_reward() -> None:
     assert bad.reward < 0.0
     assert good.reward > 0.0
     assert bad.reward < good.reward
+
+
+def test_task_reward_scales_make_hard_penalties_stronger_than_easy() -> None:
+    env_easy = DdiEnvironment()
+    env_hard = DdiEnvironment()
+
+    env_easy.reset()  # easy
+    easy_penalty = env_easy.step(
+        DdiAction(action_type="ignore", interaction_id="INT-E1", rationale="miss")
+    )
+
+    env_hard.reset()  # easy
+    env_hard.reset()  # medium
+    env_hard.reset()  # hard
+    hard_penalty = env_hard.step(
+        DdiAction(action_type="ignore", interaction_id="INT-H1", rationale="miss")
+    )
+
+    assert easy_penalty.reward is not None
+    assert hard_penalty.reward is not None
+    assert abs(hard_penalty.reward) > abs(easy_penalty.reward)
 
 
 def test_low_impact_optional_regimen_discouraged_in_hard_task() -> None:

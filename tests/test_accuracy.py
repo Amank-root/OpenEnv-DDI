@@ -1,6 +1,7 @@
 """Accuracy-oriented behavioral tests for DDI environment scoring and rewards."""
 
 from pathlib import Path
+import random
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -160,3 +161,111 @@ def test_reward_directionality_for_easy_critical_vs_wrong_actions() -> None:
     assert missed_critical.reward is not None
     assert good.reward > false_positive.reward
     assert false_positive.reward > missed_critical.reward
+
+
+def test_flagging_critical_reduces_risk_score() -> None:
+    env = DdiEnvironment()
+    obs = env.reset()
+    baseline_risk = obs.current_risk_score
+
+    after = env.step(
+        DdiAction(
+            action_type="flag_interaction",
+            interaction_id="INT-E1",
+            rationale="critical",
+        )
+    )
+
+    assert after.current_risk_score <= baseline_risk
+
+
+def test_hard_high_impact_substitution_outperforms_low_impact() -> None:
+    env_high = DdiEnvironment()
+    env_low = DdiEnvironment()
+
+    env_high.reset()  # easy
+    env_high.reset()  # medium
+    hard_high = env_high.reset()  # hard
+
+    env_low.reset()  # easy
+    env_low.reset()  # medium
+    hard_low = env_low.reset()  # hard
+
+    required = set(getattr(env_high, "_patient_case", {}).get("required_regimens", []))
+
+    high_regimen = next(
+        option.regimen_id
+        for option in hard_high.substitution_options
+        if option.regimen_id in required
+    )
+    low_regimen = next(
+        option.regimen_id
+        for option in hard_low.substitution_options
+        if option.regimen_id not in required and option.expected_risk_delta < 0.5
+    )
+
+    high = env_high.step(
+        DdiAction(
+            action_type="suggest_alternative",
+            suggested_regimen_id=high_regimen,
+            rationale="required",
+        )
+    )
+    low = env_low.step(
+        DdiAction(
+            action_type="suggest_alternative",
+            suggested_regimen_id=low_regimen,
+            rationale="low impact",
+        )
+    )
+
+    assert high.reward is not None
+    assert low.reward is not None
+    assert high.reward > low.reward
+
+
+def test_random_policy_rewards_are_bounded_and_scores_valid() -> None:
+    env = DdiEnvironment(task_sampling="mixed_seeded")
+    rng = random.Random(11)
+
+    for _ in range(6):
+        obs = env.reset()
+
+        for _ in range(obs.step_budget + 2):
+            unresolved = obs.metadata.get("unresolved_interaction_ids", [])
+            suggestable = obs.metadata.get("remaining_high_impact_regimens", [])
+            can_finish = bool(obs.metadata.get("can_finish", False))
+
+            candidates = []
+            if unresolved:
+                interaction_id = rng.choice(unresolved)
+                candidates.append(
+                    DdiAction(
+                        action_type=rng.choice(["flag_interaction", "monitor", "ignore"]),
+                        interaction_id=interaction_id,
+                        rationale="random triage",
+                    )
+                )
+            if obs.task_level == "hard" and suggestable:
+                regimen_id = rng.choice(suggestable)
+                candidates.append(
+                    DdiAction(
+                        action_type="suggest_alternative",
+                        suggested_regimen_id=regimen_id,
+                        rationale="random substitution",
+                    )
+                )
+            if can_finish or not candidates:
+                candidates.append(DdiAction(action_type="finish", rationale="random finish"))
+
+            action = rng.choice(candidates)
+            obs = env.step(action)
+
+            assert obs.reward is not None
+            assert -3.0 <= obs.reward <= 3.0
+            assert obs.current_risk_score >= 0.0
+
+            if obs.done:
+                assert obs.final_score is not None
+                assert 0.0 < obs.final_score < 1.0
+                break

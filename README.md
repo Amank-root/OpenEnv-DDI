@@ -43,6 +43,12 @@ keeping the initial curriculum warmup cycle.
 
 Each episode corresponds to one patient case.
 
+### Expected Difficulty Profile
+
+- **Easy**: mostly severe DDI identification with short medication lists and minimal planning burden.
+- **Medium**: context-sensitive decision boundary (e.g., moderate interactions can escalate with renal/hepatic/age risk).
+- **Hard**: multi-objective control (correct triage + substitution planning + finish timing) with longer horizons.
+
 ## Dataset Splits
 
 Cases are organized into strict template-family splits to prevent train/validation leakage.
@@ -61,6 +67,12 @@ Task ordering is controlled by `DDI_TASK_SAMPLING`:
 
 - `curriculum` (default): fixed `easy -> medium -> hard`
 - `mixed`: one curriculum warmup, then deterministic mixed-difficulty pattern
+- `mixed_seeded` / `mixed_shuffled`: one curriculum warmup, then seeded shuffled windows for reproducible randomness
+
+Optional seeded-shuffle controls:
+
+- `DDI_TASK_SHUFFLE_SEED` (default `17`)
+- `DDI_TASK_SHUFFLE_WINDOW` (default `6`)
 
 ## Observation Space
 
@@ -193,6 +205,22 @@ Optional environment connection variables:
 - `IMAGE_NAME`: fallback Docker image variable.
 - `ENV_IMAGE`: legacy fallback Docker image variable.
 
+## Baseline Scores
+
+Representative baseline results from `inference.py` (curriculum order, `TASK_EPISODES=3`, one easy/medium/hard cycle):
+
+| Task | Score |
+|---|---:|
+| easy | 0.999 |
+| medium | 0.999 |
+| hard | 0.979 |
+| mean | 0.992 |
+
+Notes:
+
+- Scores are deterministic for fixed case order and policy behavior.
+- Validation checks parse the structured `[START]`, `[STEP]`, and `[END]` lines emitted by `inference.py`.
+
 ## Docker
 
 Build image:
@@ -228,7 +256,7 @@ The deployed API exposes:
 Use the provided validator script:
 
 ```bash
-./validate-submission.sh <your_space_url>
+./validate-submission.sh https://amank-root-ddi-env.hf.space
 ```
 
 This checks Space availability, Docker build success, and `openenv validate` compliance.

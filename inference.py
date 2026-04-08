@@ -52,7 +52,7 @@ TASK_NAME = os.getenv("DDI_TASK_NAME", "ddi-triage")
 MAX_STEPS = int(os.getenv("MAX_STEPS", "16"))
 SUCCESS_SCORE_THRESHOLD = float(os.getenv("SUCCESS_SCORE_THRESHOLD", "0.7"))
 TEMPERATURE = 0.0
-MAX_TOKENS = 3500
+MAX_TOKENS = 1400
 JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
 # Keep displayed score strictly in (0, 1) after 3-decimal formatting.
@@ -62,12 +62,28 @@ LOG_REWARD_MIN = 0.0
 LOG_REWARD_MAX = 1.0
 
 
+# SYSTEM_PROMPT = (
+#     "You are a clinical medication safety triage assistant. "
+#     "Return exactly one JSON object with keys: "
+#     "action_type, interaction_id, suggested_regimen_id, rationale. "
+#     "Valid action_type values are flag_interaction, monitor, suggest_alternative, ignore, finish. "
+#     "If action_type does not require a field, set it to null."
+# )
 SYSTEM_PROMPT = (
     "You are a clinical medication safety triage assistant. "
-    "Return exactly one JSON object with keys: "
-    "action_type, interaction_id, suggested_regimen_id, rationale. "
-    "Valid action_type values are flag_interaction, monitor, suggest_alternative, ignore, finish. "
-    "If action_type does not require a field, set it to null."
+    "Return exactly one valid JSON object and nothing else. "
+    "Do not output markdown, code fences, or extra text. "
+    "Required keys: action_type, interaction_id, suggested_regimen_id, rationale. "
+    "Allowed action_type values: flag_interaction, monitor, suggest_alternative, ignore, finish. "
+    "Field rules: "
+    "for flag_interaction/monitor/ignore -> interaction_id must be a valid unresolved interaction_id and suggested_regimen_id must be null; "
+    "for suggest_alternative -> suggested_regimen_id must be a valid unsuggested regimen_id and interaction_id must be null; "
+    "for finish -> interaction_id and suggested_regimen_id must both be null. "
+    "Decision policy: prioritize contraindicated and major interactions first; "
+    "in medium/hard, treat moderate interactions as higher risk when age/renal/hepatic risk is elevated; "
+    "in hard, propose high-impact alternatives before finish when pending. "
+    "Never duplicate an already decided interaction or already suggested regimen. "
+    "Set rationale to one short sentence."
 )
 
 
@@ -479,6 +495,7 @@ def call_model(
         max_tokens=MAX_TOKENS,
     )
     response_text = completion.choices[0].message.content or ""
+    # print(parse_action(response_text, observation),"\n\n", flush=True)
     return parse_action(response_text, observation)
 
 

@@ -11,7 +11,13 @@ import argparse
 from collections import Counter, defaultdict
 import json
 from pathlib import Path
+import sys
 from typing import Any
+
+# Allow execution as a file path: uv run training/validate_generated_cases.py ...
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from ddi_data import TASK_CASES, case_template_family
 from graders import expected_decision

@@ -331,4 +331,189 @@ EASY_CASES: List[Case] = [
         "required_regimens": [],
         "substitution_options": [],
     },
+    {
+        "case_id": "E-009",
+        "template_family": "train::elderly-hepatic-qtc-easy",
+        "split": "train",
+        "age": 88,
+        "labs": {
+            "egfr": 57.0,
+            "creatinine": 1.1,
+            "potassium": 4.6,
+            "inr": 1.0,
+            "alt": 158.0,
+            "ast": 141.0,
+        },
+        "diagnoses": ["depression", "copd", "chronic_liver_disease"],
+        "medications": [
+            "citalopram",
+            "clarithromycin",
+            "warfarin",
+            "metronidazole",
+            "furosemide",
+        ],
+        "interactions": [
+            {
+                "interaction_id": "INT-E91",
+                "drug_a": "warfarin",
+                "drug_b": "metronidazole",
+                "severity": "contraindicated",
+                "evidence": "pronounced INR elevation with severe bleeding risk",
+            },
+            {
+                "interaction_id": "INT-E92",
+                "drug_a": "citalopram",
+                "drug_b": "clarithromycin",
+                "severity": "major",
+                "evidence": "additive QT prolongation risk",
+            },
+            {
+                "interaction_id": "INT-E93",
+                "drug_a": "clarithromycin",
+                "drug_b": "furosemide",
+                "severity": "minor",
+                "evidence": "potential dehydration-related dizziness",
+            },
+        ],
+        "required_regimens": [],
+        "substitution_options": [],
+    },
+    {
+        "case_id": "E-010",
+        "template_family": "validation::renal-edge-anticoag-easy",
+        "split": "validation",
+        "age": 82,
+        "labs": {
+            "egfr": 42.0,
+            "creatinine": 1.6,
+            "potassium": 4.9,
+            "inr": 2.3,
+            "alt": 42.0,
+            "ast": 35.0,
+        },
+        "diagnoses": ["atrial_fibrillation", "chronic_kidney_disease", "hypertension"],
+        "medications": [
+            "warfarin",
+            "trimethoprim_sulfamethoxazole",
+            "spironolactone",
+            "losartan",
+            "pantoprazole",
+        ],
+        "interactions": [
+            {
+                "interaction_id": "INT-E101",
+                "drug_a": "warfarin",
+                "drug_b": "trimethoprim_sulfamethoxazole",
+                "severity": "contraindicated",
+                "evidence": "large INR increase with severe bleeding risk",
+            },
+            {
+                "interaction_id": "INT-E102",
+                "drug_a": "spironolactone",
+                "drug_b": "losartan",
+                "severity": "moderate",
+                "evidence": "combined potassium retention",
+            },
+            {
+                "interaction_id": "INT-E103",
+                "drug_a": "pantoprazole",
+                "drug_b": "losartan",
+                "severity": "minor",
+                "evidence": "possible additive orthostatic symptoms",
+            },
+        ],
+        "required_regimens": [],
+        "substitution_options": [],
+    },
 ]
+
+
+def _generate_easy_expansion(count: int = 36, start_idx: int = 200) -> List[Case]:
+    generated: List[Case] = []
+    for offset in range(count):
+        idx = start_idx + offset
+        split = "validation" if offset % 5 == 4 else "train"
+        template_family = f"{split}::bulk-easy-{idx}"
+        case_id = f"E-{idx}"
+        interaction_prefix = f"INT-E{idx}"
+
+        severe_pair = (
+            ("warfarin", "metronidazole", "contraindicated", "severe INR elevation and bleeding risk")
+            if offset % 2 == 0
+            else ("nitroglycerin", "sildenafil", "contraindicated", "profound hypotension risk")
+        )
+        major_pair = (
+            ("apixaban", "clarithromycin", "major", "increased anticoagulant exposure")
+            if offset % 3 == 0
+            else ("citalopram", "azithromycin", "major", "additive QT prolongation risk")
+        )
+        moderate_pair = (
+            ("spironolactone", "losartan", "moderate", "combined potassium retention risk")
+            if offset % 2 == 0
+            else ("simvastatin", "amlodipine", "moderate", "higher statin exposure and myopathy risk")
+        )
+
+        medications = sorted(
+            {
+                severe_pair[0],
+                severe_pair[1],
+                major_pair[0],
+                major_pair[1],
+                moderate_pair[0],
+                moderate_pair[1],
+                "furosemide",
+                "metoprolol",
+            }
+        )
+
+        generated.append(
+            {
+                "case_id": case_id,
+                "template_family": template_family,
+                "split": split,
+                "age": 68 + (offset % 24),
+                "labs": {
+                    "egfr": float(38 + (offset % 44)),
+                    "creatinine": round(0.9 + (offset % 8) * 0.12, 2),
+                    "potassium": round(4.0 + (offset % 7) * 0.14, 2),
+                    "inr": round(1.1 + (offset % 7) * 0.2, 2),
+                    "alt": float(42 + (offset % 6) * 14),
+                    "ast": float(39 + (offset % 6) * 13),
+                },
+                "diagnoses": [
+                    "atrial_fibrillation",
+                    "hypertension",
+                    "chronic_kidney_disease" if offset % 2 == 0 else "coronary_artery_disease",
+                ],
+                "medications": medications,
+                "interactions": [
+                    {
+                        "interaction_id": f"{interaction_prefix}1",
+                        "drug_a": severe_pair[0],
+                        "drug_b": severe_pair[1],
+                        "severity": severe_pair[2],
+                        "evidence": severe_pair[3],
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}2",
+                        "drug_a": major_pair[0],
+                        "drug_b": major_pair[1],
+                        "severity": major_pair[2],
+                        "evidence": major_pair[3],
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}3",
+                        "drug_a": moderate_pair[0],
+                        "drug_b": moderate_pair[1],
+                        "severity": moderate_pair[2],
+                        "evidence": moderate_pair[3],
+                    },
+                ],
+                "required_regimens": [],
+                "substitution_options": [],
+            }
+        )
+    return generated
+
+
+EASY_CASES.extend(_generate_easy_expansion())

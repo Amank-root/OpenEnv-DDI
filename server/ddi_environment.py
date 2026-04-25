@@ -42,6 +42,13 @@ REWARD_CORRECT_NON_FLAG = 0.65
 PENALTY_MISSED_CRITICAL = 1.2
 PENALTY_FALSE_POSITIVE_FLAG = 0.85
 PENALTY_SUBOPTIMAL = 0.3
+PENALTY_INVALID_INTERACTION_ID = 0.4
+PENALTY_DUPLICATE_DECISION = 0.1
+PENALTY_INVALID_SUBSTITUTION = 0.45
+PENALTY_DUPLICATE_SUBSTITUTION = 0.1
+PENALTY_OUT_OF_TASK_SUBSTITUTION = 0.3
+PENALTY_UNSUPPORTED_ACTION = 0.2
+PENALTY_REPEAT_FINISH_AFTER_DONE = 0.35
 
 REWARD_REQUIRED_REGIMEN = 0.9
 REWARD_OPTIONAL_HIGH_IMPACT = 0.12
@@ -88,6 +95,14 @@ class DdiEnvironment(Environment):
         self._decisions = {}
         self._suggested_regimens = set()
         self._decision_log = []
+        self._episode_done = False
+        self._last_reward_components = {
+            "triage_score": 0.0,
+            "regimen_score": 0.0,
+            "risk_delta_bonus": 0.0,
+            "invalid_action_penalty": 0.0,
+            "terminal_adjustment": 0.0,
+        }
 
     def _refill_shuffled_task_buffer(self) -> None:
         # Build a deterministic shuffled window that still covers all task levels.
@@ -141,6 +156,7 @@ class DdiEnvironment(Environment):
         self._decisions = {}
         self._suggested_regimens = set()
         self._decision_log = []
+        self._episode_done = False
 
     def _remaining_critical(self) -> int:
         remaining = 0
@@ -288,6 +304,7 @@ class DdiEnvironment(Environment):
                     "template_family", f"legacy::{self._patient_case['case_id']}"
                 ),
                 "case_split_assignment": self._patient_case.get("split", "train"),
+                "reward_components": dict(self._last_reward_components),
             },
         )
 
@@ -315,12 +332,12 @@ class DdiEnvironment(Environment):
             self._decision_log.append(
                 f"Invalid interaction id: {action.interaction_id}"
             )
-            return -0.4
+            return -PENALTY_INVALID_INTERACTION_ID
 
         interaction_id = interaction["interaction_id"]
         if interaction_id in self._decisions:
             self._decision_log.append(f"Duplicate decision for {interaction_id}")
-            return -0.1
+            return -PENALTY_DUPLICATE_DECISION
 
         expected = expected_decision(interaction, self._patient_case, self._task_level)
         action_type = action.action_type
@@ -356,7 +373,7 @@ class DdiEnvironment(Environment):
     def _apply_substitution_action(self, action: DdiAction) -> float:
         if self._task_level != "hard":
             self._decision_log.append("Alternative suggestion used outside hard task")
-            return -0.3
+            return -PENALTY_OUT_OF_TASK_SUBSTITUTION
 
         option_by_id = {
             option["regimen_id"]: option
@@ -367,13 +384,13 @@ class DdiEnvironment(Environment):
 
         if not option:
             self._decision_log.append(f"Invalid substitution option: {regimen_id}")
-            return -0.45
+            return -PENALTY_INVALID_SUBSTITUTION
 
         if regimen_id in self._suggested_regimens:
             self._decision_log.append(
                 f"Duplicate substitution suggestion: {regimen_id}"
             )
-            return -0.1
+            return -PENALTY_DUPLICATE_SUBSTITUTION
 
         self._suggested_regimens.add(regimen_id)
         required = set(self._patient_case.get("required_regimens", []))
@@ -409,31 +426,65 @@ class DdiEnvironment(Environment):
 
     def step(self, action: DdiAction) -> DdiObservation:  # type: ignore[override]
         """Execute one triage action and return shaped reward feedback."""
+        if self._episode_done:
+            self._state.step_count += 1
+            invalid_penalty = self._scale_reward(-PENALTY_REPEAT_FINISH_AFTER_DONE)
+            self._last_reward_components = {
+                "triage_score": 0.0,
+                "regimen_score": 0.0,
+                "risk_delta_bonus": 0.0,
+                "invalid_action_penalty": round(invalid_penalty, 4),
+                "terminal_adjustment": 0.0,
+            }
+            self._decision_log.append(
+                "Action received after episode completion; apply anti-hacking penalty"
+            )
+            return self._build_observation(
+                done=True,
+                reward=round(invalid_penalty, 4),
+                final_score=round(self._final_score(), 4),
+            )
+
         self._state.step_count += 1
         previous_risk = self._risk_score()
         reward = 0.0
         done = False
+        triage_score = 0.0
+        regimen_score = 0.0
+        invalid_action_penalty = 0.0
 
         action_type = action.action_type
 
         if action_type in {"flag_interaction", "monitor", "ignore"}:
-            reward += self._scale_reward(self._apply_triage_action(action))
+            triage_score = self._scale_reward(self._apply_triage_action(action))
+            reward += triage_score
 
         elif action_type == "suggest_alternative":
-            reward += self._scale_reward(self._apply_substitution_action(action))
+            regimen_score = self._scale_reward(self._apply_substitution_action(action))
+            reward += regimen_score
 
         elif action_type == "finish":
             finish_reward, done = self._apply_finish_action()
-            reward += self._scale_reward(finish_reward)
+            triage_score = self._scale_reward(finish_reward)
+            reward += triage_score
 
         else:
-            reward += self._scale_reward(-0.2)
+            invalid_action_penalty = self._scale_reward(-PENALTY_UNSUPPORTED_ACTION)
+            reward += invalid_action_penalty
             self._decision_log.append(f"Unsupported action type: {action_type}")
 
         risk_bonus = self._scale_reward(self._risk_delta_bonus(previous_risk))
         reward += risk_bonus
         if risk_bonus != 0:
             self._decision_log.append(f"Risk-delta shaping applied: {risk_bonus:+.3f}")
+
+        self._last_reward_components = {
+            "triage_score": round(triage_score, 4),
+            "regimen_score": round(regimen_score, 4),
+            "risk_delta_bonus": round(risk_bonus, 4),
+            "invalid_action_penalty": round(invalid_action_penalty, 4),
+            "terminal_adjustment": 0.0,
+        }
 
         if self._state.step_count >= self._task_config.step_budget:
             done = True
@@ -446,7 +497,12 @@ class DdiEnvironment(Environment):
         if done:
             final_score = self._final_score()
             terminal_adjustment = TERMINAL_SCORE_WEIGHT * (final_score - 0.5)
-            reward += self._scale_reward(terminal_adjustment)
+            terminal_reward = self._scale_reward(terminal_adjustment)
+            reward += terminal_reward
+            self._last_reward_components["terminal_adjustment"] = round(
+                terminal_reward, 4
+            )
+            self._episode_done = True
             return self._build_observation(
                 done=True,
                 reward=round(reward, 4),

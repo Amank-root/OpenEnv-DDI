@@ -737,4 +737,330 @@ HARD_CASES: List[Case] = [
             },
         ],
     },
+    {
+        "case_id": "H-009",
+        "template_family": "train::renal-hepatic-tradeoff-hard",
+        "split": "train",
+        "age": 90,
+        "labs": {
+            "egfr": 25.0,
+            "creatinine": 2.6,
+            "potassium": 5.5,
+            "inr": 2.7,
+            "alt": 148.0,
+            "ast": 139.0,
+        },
+        "diagnoses": [
+            "atrial_fibrillation",
+            "chronic_kidney_disease",
+            "chronic_liver_disease",
+            "coronary_artery_disease",
+            "chronic_pain",
+        ],
+        "medications": [
+            "warfarin",
+            "metronidazole",
+            "clopidogrel",
+            "omeprazole",
+            "spironolactone",
+            "valsartan",
+            "ibuprofen",
+            "simvastatin",
+            "diltiazem",
+        ],
+        "interactions": [
+            {
+                "interaction_id": "INT-H91",
+                "drug_a": "warfarin",
+                "drug_b": "metronidazole",
+                "severity": "contraindicated",
+                "evidence": "severe INR elevation and major bleeding risk",
+            },
+            {
+                "interaction_id": "INT-H92",
+                "drug_a": "clopidogrel",
+                "drug_b": "omeprazole",
+                "severity": "major",
+                "evidence": "reduced antiplatelet activation",
+            },
+            {
+                "interaction_id": "INT-H93",
+                "drug_a": "spironolactone",
+                "drug_b": "valsartan",
+                "severity": "moderate",
+                "evidence": "severe hyperkalemia risk in advanced CKD",
+            },
+            {
+                "interaction_id": "INT-H94",
+                "drug_a": "simvastatin",
+                "drug_b": "diltiazem",
+                "severity": "moderate",
+                "evidence": "increased statin exposure with myopathy risk",
+            },
+            {
+                "interaction_id": "INT-H95",
+                "drug_a": "warfarin",
+                "drug_b": "ibuprofen",
+                "severity": "major",
+                "evidence": "additive GI and systemic bleeding risk",
+            },
+        ],
+        "required_regimens": ["REG-H91", "REG-H92", "REG-H93"],
+        "substitution_options": [
+            {
+                "regimen_id": "REG-H91",
+                "replace_drug": "metronidazole",
+                "with_drug": "doxycycline",
+                "target_condition": "infection",
+                "expected_risk_delta": 0.83,
+                "rationale": "reduces warfarin interaction burden",
+            },
+            {
+                "regimen_id": "REG-H92",
+                "replace_drug": "omeprazole",
+                "with_drug": "pantoprazole",
+                "target_condition": "gi_protection",
+                "expected_risk_delta": 0.56,
+                "rationale": "lowers antiplatelet interaction burden",
+            },
+            {
+                "regimen_id": "REG-H93",
+                "replace_drug": "ibuprofen",
+                "with_drug": "acetaminophen",
+                "target_condition": "pain",
+                "expected_risk_delta": 0.62,
+                "rationale": "reduces additive bleeding risk",
+            },
+            {
+                "regimen_id": "REG-H94",
+                "replace_drug": "simvastatin",
+                "with_drug": "pravastatin",
+                "target_condition": "dyslipidemia",
+                "expected_risk_delta": 0.33,
+                "rationale": "reduces CYP3A4 interaction burden",
+            },
+        ],
+    },
+    {
+        "case_id": "H-010",
+        "template_family": "validation::decision-boundary-substitution-hard",
+        "split": "validation",
+        "age": 84,
+        "labs": {
+            "egfr": 44.0,
+            "creatinine": 1.8,
+            "potassium": 5.1,
+            "inr": 2.2,
+            "alt": 122.0,
+            "ast": 120.0,
+        },
+        "diagnoses": [
+            "atrial_fibrillation",
+            "heart_failure",
+            "chronic_kidney_disease",
+            "type_2_diabetes",
+        ],
+        "medications": [
+            "apixaban",
+            "clarithromycin",
+            "digoxin",
+            "verapamil",
+            "spironolactone",
+            "lisinopril",
+            "naproxen",
+        ],
+        "interactions": [
+            {
+                "interaction_id": "INT-H101",
+                "drug_a": "apixaban",
+                "drug_b": "clarithromycin",
+                "severity": "major",
+                "evidence": "higher anticoagulant exposure and bleeding risk",
+            },
+            {
+                "interaction_id": "INT-H102",
+                "drug_a": "digoxin",
+                "drug_b": "verapamil",
+                "severity": "moderate",
+                "evidence": "P-gp inhibition may increase digoxin concentration",
+            },
+            {
+                "interaction_id": "INT-H103",
+                "drug_a": "spironolactone",
+                "drug_b": "lisinopril",
+                "severity": "moderate",
+                "evidence": "hyperkalemia risk near renal threshold",
+            },
+            {
+                "interaction_id": "INT-H104",
+                "drug_a": "apixaban",
+                "drug_b": "naproxen",
+                "severity": "major",
+                "evidence": "additive anticoagulation-related bleeding risk",
+            },
+        ],
+        "required_regimens": ["REG-H101", "REG-H102", "REG-H103"],
+        "substitution_options": [
+            {
+                "regimen_id": "REG-H101",
+                "replace_drug": "clarithromycin",
+                "with_drug": "azithromycin",
+                "target_condition": "infection",
+                "expected_risk_delta": 0.68,
+                "rationale": "reduces CYP3A4 interaction with apixaban",
+            },
+            {
+                "regimen_id": "REG-H102",
+                "replace_drug": "naproxen",
+                "with_drug": "acetaminophen",
+                "target_condition": "pain",
+                "expected_risk_delta": 0.61,
+                "rationale": "reduces additive bleeding risk",
+            },
+            {
+                "regimen_id": "REG-H103",
+                "replace_drug": "spironolactone",
+                "with_drug": "eplerenone",
+                "target_condition": "heart_failure",
+                "expected_risk_delta": 0.53,
+                "rationale": "reduces hyperkalemia exposure in CKD",
+            },
+            {
+                "regimen_id": "REG-H104",
+                "replace_drug": "verapamil",
+                "with_drug": "bisoprolol",
+                "target_condition": "rate_control",
+                "expected_risk_delta": 0.29,
+                "rationale": "modest reduction in digoxin interaction burden",
+            },
+        ],
+    },
 ]
+
+
+def _generate_hard_expansion(count: int = 36, start_idx: int = 400) -> List[Case]:
+    generated: List[Case] = []
+    for offset in range(count):
+        idx = start_idx + offset
+        split = "validation" if offset % 5 == 4 else "train"
+        template_family = f"{split}::bulk-hard-{idx}"
+        case_id = f"H-{idx}"
+        interaction_prefix = f"INT-H{idx}"
+        regimen_prefix = f"REG-H{idx}"
+        severe_antibiotic = "metronidazole" if offset % 2 == 0 else "trimethoprim_sulfamethoxazole"
+        severe_replacement = "doxycycline" if severe_antibiotic == "metronidazole" else "cephalexin"
+
+        generated.append(
+            {
+                "case_id": case_id,
+                "template_family": template_family,
+                "split": split,
+                "age": 79 + (offset % 13),
+                "labs": {
+                    "egfr": float(24 + (offset % 22)),
+                    "creatinine": round(1.6 + (offset % 11) * 0.1, 2),
+                    "potassium": round(4.8 + (offset % 7) * 0.12, 2),
+                    "inr": round(2.0 + (offset % 7) * 0.14, 2),
+                    "alt": float(102 + (offset % 6) * 10),
+                    "ast": float(96 + (offset % 6) * 9),
+                },
+                "diagnoses": [
+                    "atrial_fibrillation",
+                    "chronic_kidney_disease",
+                    "heart_failure",
+                    "coronary_artery_disease",
+                    "chronic_pain",
+                ],
+                "medications": [
+                    "warfarin",
+                    severe_antibiotic,
+                    "clopidogrel",
+                    "omeprazole",
+                    "spironolactone",
+                    "losartan",
+                    "naproxen",
+                    "simvastatin",
+                    "diltiazem",
+                ],
+                "interactions": [
+                    {
+                        "interaction_id": f"{interaction_prefix}1",
+                        "drug_a": "warfarin",
+                        "drug_b": severe_antibiotic,
+                        "severity": "contraindicated",
+                        "evidence": "major INR elevation and severe bleeding risk",
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}2",
+                        "drug_a": "clopidogrel",
+                        "drug_b": "omeprazole",
+                        "severity": "major",
+                        "evidence": "reduced antiplatelet activation",
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}3",
+                        "drug_a": "spironolactone",
+                        "drug_b": "losartan",
+                        "severity": "moderate",
+                        "evidence": "high hyperkalemia risk near renal threshold",
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}4",
+                        "drug_a": "simvastatin",
+                        "drug_b": "diltiazem",
+                        "severity": "moderate",
+                        "evidence": "increased statin exposure and myopathy risk",
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}5",
+                        "drug_a": "warfarin",
+                        "drug_b": "naproxen",
+                        "severity": "major",
+                        "evidence": "additive gastrointestinal and systemic bleeding risk",
+                    },
+                ],
+                "required_regimens": [
+                    f"{regimen_prefix}1",
+                    f"{regimen_prefix}2",
+                    f"{regimen_prefix}3",
+                ],
+                "substitution_options": [
+                    {
+                        "regimen_id": f"{regimen_prefix}1",
+                        "replace_drug": severe_antibiotic,
+                        "with_drug": severe_replacement,
+                        "target_condition": "infection",
+                        "expected_risk_delta": 0.78,
+                        "rationale": "reduces warfarin interaction burden",
+                    },
+                    {
+                        "regimen_id": f"{regimen_prefix}2",
+                        "replace_drug": "omeprazole",
+                        "with_drug": "pantoprazole",
+                        "target_condition": "gi_protection",
+                        "expected_risk_delta": 0.54,
+                        "rationale": "reduces antiplatelet interaction burden",
+                    },
+                    {
+                        "regimen_id": f"{regimen_prefix}3",
+                        "replace_drug": "naproxen",
+                        "with_drug": "acetaminophen",
+                        "target_condition": "pain",
+                        "expected_risk_delta": 0.61,
+                        "rationale": "reduces additive bleeding risk",
+                    },
+                    {
+                        "regimen_id": f"{regimen_prefix}4",
+                        "replace_drug": "simvastatin",
+                        "with_drug": "pravastatin",
+                        "target_condition": "dyslipidemia",
+                        "expected_risk_delta": 0.34,
+                        "rationale": "lower CYP3A4 interaction burden",
+                    },
+                ],
+            }
+        )
+    return generated
+
+
+HARD_CASES.extend(_generate_hard_expansion())

@@ -49,3 +49,11 @@ server/__pycache__/
 task_info/
 openenv_ddi.egg-info/
 task_info/inference.sample.py
+training/demo_artifacts/
+training/data/
+training/logs/
+training/models/
+training/results/
+training/sft_warmstart_validation.jsonl
+training/sft_warmstart_validation.jsonl
+

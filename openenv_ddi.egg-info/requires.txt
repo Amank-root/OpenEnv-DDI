@@ -5,3 +5,12 @@ python-dotenv>=1.2.2
 [dev]
 pytest>=8.0.0
 pytest-cov>=4.0.0
+
+[train]
+unsloth
+trl
+transformers
+datasets
+peft
+accelerate
+bitsandbytes

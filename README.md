@@ -74,6 +74,9 @@ Optional seeded-shuffle controls:
 - `DDI_TASK_SHUFFLE_SEED` (default `17`)
 - `DDI_TASK_SHUFFLE_WINDOW` (default `6`)
 
+Current deterministic pool includes expanded template families for elderly cohorts,
+renal/hepatic extremes, comorbidity bundles, and decision-boundary flips.
+
 ## Observation Space
 
 `DdiObservation` includes:
@@ -106,6 +109,18 @@ Shaped reward is provided over the full trajectory:
 - Terminal adjustment based on grader score.
 
 This provides dense feedback, not just sparse terminal success/failure.
+
+Reward remains a single scalar while component signals are emitted in
+`metadata.reward_components`:
+
+- `triage_score`
+- `regimen_score`
+- `risk_delta_bonus`
+- `invalid_action_penalty`
+- `terminal_adjustment`
+
+Anti-hacking validation penalties apply for invalid IDs, duplicate suggestions,
+unsupported actions, and actions sent after episode completion.
 
 ## Graders
 
@@ -205,6 +220,46 @@ Optional environment connection variables:
 - `IMAGE_NAME`: fallback Docker image variable.
 - `ENV_IMAGE`: legacy fallback Docker image variable.
 
+Split checks:
+
+```bash
+DDI_CASE_SPLIT=train python inference.py
+DDI_CASE_SPLIT=validation python inference.py
+```
+
+## Training (TRL + Unsloth)
+
+Minimal T4-focused training and demo scripts live in `training/`:
+
+- `training/generate_sft_dataset.py` generates SFT warm-start data from the current heuristic policy.
+- `training/train_grpo_unsloth.py` runs a minimal GRPO + Unsloth QLoRA loop.
+- `training/build_demo_artifacts.py` builds baseline-vs-trained reward curves and transcripts.
+
+Install training extras:
+
+```bash
+uv pip install -e .[train]
+```
+
+Generate warm-start data:
+
+```bash
+python training/generate_sft_dataset.py --episodes 64 --split train
+python training/generate_sft_dataset.py --episodes 24 --split validation --out training/data/sft_warmstart_validation.jsonl
+```
+
+Run short T4 training:
+
+```bash
+DDI_CASE_SPLIT=train DDI_TASK_SAMPLING=mixed_seeded python training/train_grpo_unsloth.py --train_steps 120 --warmup_steps 40
+```
+
+Build demo artifacts:
+
+```bash
+python training/build_demo_artifacts.py --episodes 18 --split validation
+```
+
 ## Baseline Scores
 
 Representative baseline results from `inference.py` (curriculum order, `TASK_EPISODES=3`, one easy/medium/hard cycle):
@@ -250,6 +305,8 @@ The deployed API exposes:
 - `GET /state`
 - `GET /schema`
 - `GET /web`
+
+Use the same environment build for local Docker and Space to keep demo behavior aligned.
 
 ## Submission Validation
 

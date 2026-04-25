@@ -272,3 +272,39 @@ def test_low_impact_optional_regimen_discouraged_in_hard_task() -> None:
     assert result.done is False
     assert result.reward is not None
     assert result.reward < 0.0
+
+
+def test_reward_components_present_in_metadata() -> None:
+    env = DdiEnvironment()
+    obs = env.reset()
+    obs = env.step(
+        DdiAction(
+            action_type="flag_interaction",
+            interaction_id="INT-E1",
+            rationale="component-check",
+        )
+    )
+    components = obs.metadata.get("reward_components", {})
+    assert isinstance(components, dict)
+    for key in (
+        "triage_score",
+        "regimen_score",
+        "risk_delta_bonus",
+        "invalid_action_penalty",
+        "terminal_adjustment",
+    ):
+        assert key in components
+
+
+def test_action_after_done_gets_repeat_finish_penalty() -> None:
+    env = DdiEnvironment()
+    env.reset()
+    done_obs = env.step(DdiAction(action_type="finish", rationale="premature done"))
+    assert done_obs.done is True
+
+    post_done = env.step(DdiAction(action_type="finish", rationale="repeat finish"))
+    assert post_done.done is True
+    assert post_done.reward is not None
+    assert post_done.reward < 0.0
+    components = post_done.metadata.get("reward_components", {})
+    assert float(components.get("invalid_action_penalty", 0.0)) < 0.0

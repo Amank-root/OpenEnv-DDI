@@ -35,6 +35,15 @@ dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
 ]
+train = [
+    "unsloth",
+    "trl",
+    "transformers",
+    "datasets",
+    "peft",
+    "accelerate",
+    "bitsandbytes",
+]
 
 [project.scripts]
 # Server entry point - enables running via: uv run --project . server

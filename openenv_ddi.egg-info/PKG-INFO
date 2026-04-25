@@ -9,3 +9,11 @@ Requires-Dist: python-dotenv>=1.2.2
 Provides-Extra: dev
 Requires-Dist: pytest>=8.0.0; extra == "dev"
 Requires-Dist: pytest-cov>=4.0.0; extra == "dev"
+Provides-Extra: train
+Requires-Dist: unsloth; extra == "train"
+Requires-Dist: trl; extra == "train"
+Requires-Dist: transformers; extra == "train"
+Requires-Dist: datasets; extra == "train"
+Requires-Dist: peft; extra == "train"
+Requires-Dist: accelerate; extra == "train"
+Requires-Dist: bitsandbytes; extra == "train"

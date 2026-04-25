@@ -2,6 +2,8 @@
 
 from typing import Any, Dict, List
 
+from .validated_batch_01 import VALIDATED_EASY_CASES
+
 Case = Dict[str, Any]
 
 EASY_CASES: List[Case] = [
@@ -428,7 +430,7 @@ EASY_CASES: List[Case] = [
 ]
 
 
-def _generate_easy_expansion(count: int = 36, start_idx: int = 200) -> List[Case]:
+def _generate_easy_expansion(count: int = 100, start_idx: int = 200) -> List[Case]:
     generated: List[Case] = []
     for offset in range(count):
         idx = start_idx + offset
@@ -517,3 +519,4 @@ def _generate_easy_expansion(count: int = 36, start_idx: int = 200) -> List[Case
 
 
 EASY_CASES.extend(_generate_easy_expansion())
+EASY_CASES.extend(VALIDATED_EASY_CASES)

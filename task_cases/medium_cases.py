@@ -2,6 +2,8 @@
 
 from typing import Any, Dict, List
 
+from .validated_batch_01 import VALIDATED_MEDIUM_CASES
+
 Case = Dict[str, Any]
 
 MEDIUM_CASES: List[Case] = [
@@ -542,7 +544,7 @@ MEDIUM_CASES: List[Case] = [
 ]
 
 
-def _generate_medium_expansion(count: int = 36, start_idx: int = 300) -> List[Case]:
+def _generate_medium_expansion(count: int = 100, start_idx: int = 300) -> List[Case]:
     generated: List[Case] = []
     for offset in range(count):
         idx = start_idx + offset
@@ -618,3 +620,4 @@ def _generate_medium_expansion(count: int = 36, start_idx: int = 300) -> List[Ca
 
 
 MEDIUM_CASES.extend(_generate_medium_expansion())
+MEDIUM_CASES.extend(VALIDATED_MEDIUM_CASES)

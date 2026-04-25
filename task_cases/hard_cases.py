@@ -936,3 +936,131 @@ HARD_CASES: List[Case] = [
         ],
     },
 ]
+
+
+def _generate_hard_expansion(count: int = 36, start_idx: int = 400) -> List[Case]:
+    generated: List[Case] = []
+    for offset in range(count):
+        idx = start_idx + offset
+        split = "validation" if offset % 5 == 4 else "train"
+        template_family = f"{split}::bulk-hard-{idx}"
+        case_id = f"H-{idx}"
+        interaction_prefix = f"INT-H{idx}"
+        regimen_prefix = f"REG-H{idx}"
+        severe_antibiotic = "metronidazole" if offset % 2 == 0 else "trimethoprim_sulfamethoxazole"
+        severe_replacement = "doxycycline" if severe_antibiotic == "metronidazole" else "cephalexin"
+
+        generated.append(
+            {
+                "case_id": case_id,
+                "template_family": template_family,
+                "split": split,
+                "age": 79 + (offset % 13),
+                "labs": {
+                    "egfr": float(24 + (offset % 22)),
+                    "creatinine": round(1.6 + (offset % 11) * 0.1, 2),
+                    "potassium": round(4.8 + (offset % 7) * 0.12, 2),
+                    "inr": round(2.0 + (offset % 7) * 0.14, 2),
+                    "alt": float(102 + (offset % 6) * 10),
+                    "ast": float(96 + (offset % 6) * 9),
+                },
+                "diagnoses": [
+                    "atrial_fibrillation",
+                    "chronic_kidney_disease",
+                    "heart_failure",
+                    "coronary_artery_disease",
+                    "chronic_pain",
+                ],
+                "medications": [
+                    "warfarin",
+                    severe_antibiotic,
+                    "clopidogrel",
+                    "omeprazole",
+                    "spironolactone",
+                    "losartan",
+                    "naproxen",
+                    "simvastatin",
+                    "diltiazem",
+                ],
+                "interactions": [
+                    {
+                        "interaction_id": f"{interaction_prefix}1",
+                        "drug_a": "warfarin",
+                        "drug_b": severe_antibiotic,
+                        "severity": "contraindicated",
+                        "evidence": "major INR elevation and severe bleeding risk",
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}2",
+                        "drug_a": "clopidogrel",
+                        "drug_b": "omeprazole",
+                        "severity": "major",
+                        "evidence": "reduced antiplatelet activation",
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}3",
+                        "drug_a": "spironolactone",
+                        "drug_b": "losartan",
+                        "severity": "moderate",
+                        "evidence": "high hyperkalemia risk near renal threshold",
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}4",
+                        "drug_a": "simvastatin",
+                        "drug_b": "diltiazem",
+                        "severity": "moderate",
+                        "evidence": "increased statin exposure and myopathy risk",
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}5",
+                        "drug_a": "warfarin",
+                        "drug_b": "naproxen",
+                        "severity": "major",
+                        "evidence": "additive gastrointestinal and systemic bleeding risk",
+                    },
+                ],
+                "required_regimens": [
+                    f"{regimen_prefix}1",
+                    f"{regimen_prefix}2",
+                    f"{regimen_prefix}3",
+                ],
+                "substitution_options": [
+                    {
+                        "regimen_id": f"{regimen_prefix}1",
+                        "replace_drug": severe_antibiotic,
+                        "with_drug": severe_replacement,
+                        "target_condition": "infection",
+                        "expected_risk_delta": 0.78,
+                        "rationale": "reduces warfarin interaction burden",
+                    },
+                    {
+                        "regimen_id": f"{regimen_prefix}2",
+                        "replace_drug": "omeprazole",
+                        "with_drug": "pantoprazole",
+                        "target_condition": "gi_protection",
+                        "expected_risk_delta": 0.54,
+                        "rationale": "reduces antiplatelet interaction burden",
+                    },
+                    {
+                        "regimen_id": f"{regimen_prefix}3",
+                        "replace_drug": "naproxen",
+                        "with_drug": "acetaminophen",
+                        "target_condition": "pain",
+                        "expected_risk_delta": 0.61,
+                        "rationale": "reduces additive bleeding risk",
+                    },
+                    {
+                        "regimen_id": f"{regimen_prefix}4",
+                        "replace_drug": "simvastatin",
+                        "with_drug": "pravastatin",
+                        "target_condition": "dyslipidemia",
+                        "expected_risk_delta": 0.34,
+                        "rationale": "lower CYP3A4 interaction burden",
+                    },
+                ],
+            }
+        )
+    return generated
+
+
+HARD_CASES.extend(_generate_hard_expansion())

@@ -27,6 +27,28 @@ Agents review medication lists, labs, and diagnosis context, then decide whether
 
 The environment is deterministic and built for reproducible benchmarking.
 
+## Problem
+
+Polypharmacy review is high-impact but difficult to scale. In real care workflows, clinicians must
+catch dangerous interaction pairs, avoid over-flagging low-risk combinations, and suggest safer
+substitutions while preserving treatment goals. This environment targets that practical capability
+gap with deterministic evaluation and trainable dense rewards.
+
+## Environment
+
+The agent observes a structured patient snapshot (medications, diagnoses, labs, candidate DDIs,
+and optional substitution options) and chooses one structured action each step:
+
+- `flag_interaction`
+- `monitor`
+- `suggest_alternative`
+- `ignore`
+- `finish`
+
+The same OpenEnv build runs locally and on Space:
+
+- Hugging Face Space: [https://huggingface.co/spaces/amank-root/ddi](https://huggingface.co/spaces/amank-root/ddi)
+
 ## Why This Task
 
 Polypharmacy in elderly populations is associated with preventable adverse events and avoidable hospitalizations. This benchmark focuses on medication safety triage that clinicians and pharmacists perform in real care settings.
@@ -121,6 +143,18 @@ Reward remains a single scalar while component signals are emitted in
 
 Anti-hacking validation penalties apply for invalid IDs, duplicate suggestions,
 unsupported actions, and actions sent after episode completion.
+
+## Reward Design (Hard-to-game)
+
+The reward signal is designed to teach behavior rather than overfit a single terminal metric:
+
+- dense per-step signal (`triage_score`, `regimen_score`, `risk_delta_bonus`)
+- explicit anti-hacking penalties (`invalid_action_penalty`)
+- terminal score alignment via deterministic task graders
+- single scalar reward preserved for OpenEnv compatibility
+
+This setup makes reward hacking less attractive: repeated/invalid actions, duplicate finish, and
+schema abuse are penalized even when terminal outcomes look superficially good.
 
 ## Graders
 
@@ -234,6 +268,9 @@ Minimal T4-focused training and demo scripts live in `training/`:
 - `training/generate_sft_dataset.py` generates SFT warm-start data from the current heuristic policy.
 - `training/train_grpo_unsloth.py` runs a minimal GRPO + Unsloth QLoRA loop.
 - `training/build_demo_artifacts.py` builds baseline-vs-trained reward curves and transcripts.
+- `training/generate_expansion_plan.py` creates deterministic +N/+N/+N case ID/family plans.
+- `training/synthetic_expansion_playbook.md` documents the leak-safe synthetic scaling workflow.
+- `training/validate_generated_cases.py` enforces schema/leakage/quality gates before merge.
 
 Install training extras:
 
@@ -260,7 +297,44 @@ Build demo artifacts:
 python training/build_demo_artifacts.py --episodes 18 --split validation
 ```
 
-## Baseline Scores
+Render judge-friendly plots (`.png`) from demo outputs:
+
+```bash
+python training/plot_demo_results.py --summary training/demo_artifacts/summary.json --out_dir assets/plots
+```
+
+Train directly against deployed Space environment (optional):
+
+```bash
+python training/train_grpo_unsloth.py --train_steps 120 --env_base_url https://amank-root-ddi.hf.space
+```
+
+## Results (Baseline vs Trained)
+
+Generate baseline-vs-trained artifacts:
+
+```bash
+python training/build_demo_artifacts.py --episodes 18 --split validation
+python training/plot_demo_results.py
+```
+
+Outputs:
+
+- `training/demo_artifacts/summary.json`
+- `training/demo_artifacts/baseline_transcripts.json`
+- `training/demo_artifacts/trained_transcripts.json`
+- `assets/plots/reward_curve.png`
+- `assets/plots/baseline_vs_trained.png`
+- `assets/plots/invalid_action_rate.png`
+
+Recommended table fields for submission:
+
+- mean episode reward (baseline vs trained)
+- mean final score (baseline vs trained)
+- invalid-action rate (baseline vs trained)
+- one failure transcript before training and after training improvement
+
+## Baseline Reference Scores
 
 Representative baseline results from `inference.py` (curriculum order, `TASK_EPISODES=3`, one easy/medium/hard cycle):
 
@@ -275,6 +349,19 @@ Notes:
 
 - Scores are deterministic for fixed case order and policy behavior.
 - Validation checks parse the structured `[START]`, `[STEP]`, and `[END]` lines emitted by `inference.py`.
+
+## Submission Materials
+
+Link all hackathon evidence here for quick reviewer access:
+
+- Environment Space: [https://huggingface.co/spaces/amank-root/ddi](https://huggingface.co/spaces/amank-root/ddi)
+- Training script: `training/train_grpo_unsloth.py`
+- Colab/notebook script: `training/sample-training-script.ipynb`
+- Synthetic data validator: `training/validate_generated_cases.py`
+- Plot artifacts: `assets/plots/`
+- Demo summary JSON: `training/demo_artifacts/summary.json`
+- Writeup/mini-blog: `<add URL>`
+- Video or slides: `<add URL>`
 
 ## Docker
 

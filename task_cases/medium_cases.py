@@ -540,3 +540,81 @@ MEDIUM_CASES: List[Case] = [
         "substitution_options": [],
     },
 ]
+
+
+def _generate_medium_expansion(count: int = 36, start_idx: int = 300) -> List[Case]:
+    generated: List[Case] = []
+    for offset in range(count):
+        idx = start_idx + offset
+        split = "validation" if offset % 5 == 4 else "train"
+        template_family = f"{split}::bulk-medium-{idx}"
+        case_id = f"M-{idx}"
+        interaction_prefix = f"INT-M{idx}"
+
+        generated.append(
+            {
+                "case_id": case_id,
+                "template_family": template_family,
+                "split": split,
+                "age": 74 + (offset % 15),
+                "labs": {
+                    "egfr": float(30 + (offset % 20)),
+                    "creatinine": round(1.2 + (offset % 10) * 0.12, 2),
+                    "potassium": round(4.5 + (offset % 7) * 0.13, 2),
+                    "inr": round(1.9 + (offset % 6) * 0.16, 2),
+                    "alt": float(88 + (offset % 6) * 11),
+                    "ast": float(85 + (offset % 6) * 10),
+                },
+                "diagnoses": [
+                    "atrial_fibrillation",
+                    "heart_failure",
+                    "chronic_kidney_disease",
+                    "type_2_diabetes" if offset % 2 == 0 else "hypertension",
+                ],
+                "medications": [
+                    "warfarin",
+                    "metronidazole",
+                    "spironolactone",
+                    "lisinopril",
+                    "metformin",
+                    "furosemide",
+                    "digoxin" if offset % 2 == 0 else "verapamil",
+                ],
+                "interactions": [
+                    {
+                        "interaction_id": f"{interaction_prefix}1",
+                        "drug_a": "warfarin",
+                        "drug_b": "metronidazole",
+                        "severity": "contraindicated",
+                        "evidence": "marked INR elevation and severe bleeding risk",
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}2",
+                        "drug_a": "spironolactone",
+                        "drug_b": "lisinopril",
+                        "severity": "moderate",
+                        "evidence": "high hyperkalemia risk in CKD",
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}3",
+                        "drug_a": "metformin",
+                        "drug_b": "furosemide",
+                        "severity": "moderate",
+                        "evidence": "renal stress may increase lactic acidosis risk",
+                    },
+                    {
+                        "interaction_id": f"{interaction_prefix}4",
+                        "drug_a": "digoxin" if offset % 2 == 0 else "verapamil",
+                        "drug_b": "furosemide",
+                        "severity": "minor",
+                        "evidence": "possible volume-related conduction intolerance in frailty",
+                    },
+                ],
+                "required_regimens": [],
+                "substitution_options": [],
+            }
+        )
+    return generated
+
+
+MEDIUM_CASES.extend(_generate_medium_expansion())

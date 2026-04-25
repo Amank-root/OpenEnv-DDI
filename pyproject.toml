@@ -43,6 +43,7 @@ train = [
     "peft",
     "accelerate",
     "bitsandbytes",
+    "matplotlib",
 ]
 
 [project.scripts]

@@ -1,2 +1,0 @@
-[console_scripts]
-server = ddi.server.app:main
